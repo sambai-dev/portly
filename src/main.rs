@@ -120,9 +120,17 @@ fn docker_once_blocking() -> Option<Vec<model::PortEntry>> {
         .enable_all()
         .build()
         .ok()?;
+    // A hung daemon must never hang the headless path.
     rt.block_on(async {
-        let docker = docker::connect().ok()?;
-        docker::list_entries(&docker).await.ok()
+        tokio::time::timeout(std::time::Duration::from_secs(5), async {
+            let docker = docker::connect().ok()?;
+            docker::list_entries(&docker).await.ok()
+        })
+        .await
+        .unwrap_or_else(|_| {
+            tracing::warn!("docker list timed out in --once mode");
+            None
+        })
     })
 }
 

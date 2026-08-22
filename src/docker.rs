@@ -159,10 +159,15 @@ pub fn spawn_collector(tx: Tx, interval: Duration, ignored: BTreeSet<u16>) {
                                 .filter(|e| !ignored.contains(&e.port))
                                 .collect();
                             let found = entries.len();
+                            // One stat sample per container, not per port:
+                            // multi-port containers would otherwise trigger
+                            // duplicate Engine-API round-trips each tick.
+                            let mut seen_ids: HashSet<String> = HashSet::new();
                             let ids: Vec<String> = entries
                                 .iter()
                                 .filter(|e| e.container_state.as_deref() == Some("running"))
                                 .filter_map(|e| e.container.as_ref().map(|(id, _)| id.clone()))
+                                .filter(|id| seen_ids.insert(id.clone()))
                                 .take(16)
                                 .collect();
                             if tx.send(Msg::Containers(entries)).is_err() {

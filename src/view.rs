@@ -278,7 +278,8 @@ fn fmt_mem(mem: Option<u64>) -> String {
     match mem {
         None => "-".to_string(),
         Some(b) if b >= MB => format!("{:.0}M", b as f64 / MB as f64),
-        Some(b) => format!("{b}K"),
+        Some(b) if b >= KB => format!("{}K", b / KB),
+        Some(b) => format!("{b}B"),
     }
 }
 
@@ -456,5 +457,19 @@ mod tests {
         assert!(table.starts_with("PORT"));
         assert!(table.lines().count() == 2);
         assert!(table.contains("node"));
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+
+    #[test]
+    fn mem_tiers_never_mislabel_bytes_as_k() {
+        assert_eq!(fmt_mem(Some(500)), "500B");
+        assert_eq!(fmt_mem(Some(1024)), "1K");
+        assert_eq!(fmt_mem(Some(500_000)), "488K");
+        assert_eq!(fmt_mem(Some(12 * 1024 * 1024)), "12M");
+        assert_eq!(fmt_mem(None), "-");
     }
 }

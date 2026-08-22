@@ -416,17 +416,19 @@ fn handle_mouse(model: &mut Model, m: MouseMsg) -> Vec<Effect> {
 }
 
 fn apply_container_stats(m: &mut Model, id: &str, cpu: f32, mem_bytes: u64) {
-    let mut updated_key: Option<String> = None;
+    // A multi-port container owns several rows; every one of them gets the
+    // sample and its own trend entry.
+    let mut updated_keys: Vec<String> = Vec::new();
     for e in m.entries.iter_mut() {
         if let Some((cid, _)) = &e.container {
             if cid == id {
                 e.cpu = Some(cpu);
                 e.mem_bytes = Some(mem_bytes);
-                updated_key = Some(e.key());
+                updated_keys.push(e.key());
             }
         }
     }
-    if let Some(key) = updated_key {
+    for key in updated_keys {
         let buf = m.trend.entry(key).or_default();
         buf.push_back(cpu);
         while buf.len() > TREND_LEN {
@@ -979,5 +981,44 @@ mod tests {
         assert_eq!(m.selected, 2);
         update(&mut m, Msg::Mouse(MouseMsg::ScrollUp));
         assert_eq!(m.selected, 1);
+    }
+}
+
+#[cfg(test)]
+mod audit_tests {
+    use super::*;
+
+    fn container_row(port: u16, id: &str) -> PortEntry {
+        PortEntry {
+            port,
+            proto: Protocol::Tcp,
+            pid: None,
+            process: None,
+            cmdline: None,
+            cpu: None,
+            mem_bytes: None,
+            source: Source::Docker,
+            container: Some((id.to_string(), "web".to_string())),
+            container_state: Some("running".to_string()),
+        }
+    }
+
+    #[test]
+    fn stats_update_every_row_and_trend_of_multiport_container() {
+        let mut m = Model::new();
+        m.entries = vec![container_row(8080, "abc"), container_row(8443, "abc")];
+        update(
+            &mut m,
+            Msg::ContainerStats {
+                id: "abc".into(),
+                cpu: 7.5,
+                mem_bytes: 2048,
+            },
+        );
+        for e in &m.entries {
+            assert_eq!(e.cpu, Some(7.5));
+            assert_eq!(e.mem_bytes, Some(2048));
+            assert_eq!(m.trend.get(&e.key()).map(|b| b.len()), Some(1));
+        }
     }
 }
