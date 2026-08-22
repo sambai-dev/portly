@@ -6,7 +6,7 @@
     "architecture": {
         "64bit": {
             "url": "https://github.com/sambai-dev/portly/releases/download/v0.1.0/portly-x86_64-pc-windows-msvc.zip",
-            "hash": "__SCOOP_SHA256__"
+            "hash": "8958e9236445280334d9acdc40ac88d1109ccbab50aedda4b19729d2aaf64070"
         }
     },
     "bin": "portly.exe",
