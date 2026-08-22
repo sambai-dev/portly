@@ -23,7 +23,7 @@ Sleep 1200ms
 Esc
 
 # cycle sort modes
-@Type "s"
+Type "s"
 Sleep 400ms
 Type "s"
 Sleep 800ms

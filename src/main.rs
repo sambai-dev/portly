@@ -233,11 +233,14 @@ fn tui_loop(
         }
         // 2. Collector output.
         while let Ok(msg) = rx.try_recv() {
-            if matches!(msg, Msg::ScanResult(_)) {
-                note_health_targets(&app, &health_feed);
-            }
+            let was_scan = matches!(msg, Msg::ScanResult(_));
             if apply(&mut terminal, &mut app, &theme, msg, &tx, &mut followers)? {
                 return Ok(());
+            }
+            // Feed the prober AFTER the model ingested the scan so it always
+            // probes the current port set, never a cycle-stale one.
+            if was_scan {
+                note_health_targets(&app, &health_feed);
             }
         }
         // 3. Render (pure), then feed row geometry back for mouse hit-tests.
