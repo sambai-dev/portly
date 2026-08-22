@@ -146,3 +146,35 @@ mod tests {
         assert_eq!(state, Health::Down);
     }
 }
+
+#[cfg(test)]
+mod audit3_tests {
+    use super::*;
+    use crate::config::HealthConfig;
+
+    #[test]
+    fn probe_round_reports_every_requested_port() {
+        let cfg = HealthConfig {
+            enabled: true,
+            interval_ms: 1000,
+            timeout_ms: 100,
+            path: "/".into(),
+        };
+        // Ports 9 and 8 are discard/unused; nothing should answer locally.
+        let results = probe_round(&[9, 8], &cfg);
+        assert_eq!(results.len(), 2);
+        assert!(results.contains_key(&9) && results.contains_key(&8));
+        assert_eq!(results[&9].0, Health::Down);
+    }
+
+    #[test]
+    fn probe_round_with_no_ports_is_empty_not_panic() {
+        let cfg = HealthConfig {
+            enabled: true,
+            interval_ms: 1000,
+            timeout_ms: 100,
+            path: "/".into(),
+        };
+        assert!(probe_round(&[], &cfg).is_empty());
+    }
+}

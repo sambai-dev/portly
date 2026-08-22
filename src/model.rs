@@ -484,6 +484,16 @@ fn replace_pool(model: &mut Model, pool: Pool, new_entries: Vec<PortEntry>) {
     };
 }
 
+/// Keep the selection cursor inside the visible list after the visible set
+/// shrinks (filter typed/backspaced). Without this the highlight vanishes
+/// and `x` silently stops working.
+fn clamp_selection(m: &mut Model) {
+    let len = m.visible().len();
+    if m.selected >= len {
+        m.selected = len.saturating_sub(1);
+    }
+}
+
 fn push_log_line(m: &mut Model, line: String) {
     if m.log_lines.len() >= 500 {
         m.log_lines.pop_front();
@@ -514,9 +524,11 @@ fn handle_key(model: &mut Model, key: Key) -> Vec<Effect> {
                         model.filter = None;
                     }
                 }
+                clamp_selection(model);
             }
             Key::Char(c) => {
                 model.filter.get_or_insert_with(String::new).push(c);
+                clamp_selection(model);
             }
             _ => {}
         }
@@ -1020,5 +1032,65 @@ mod audit_tests {
             assert_eq!(e.mem_bytes, Some(2048));
             assert_eq!(m.trend.get(&e.key()).map(|b| b.len()), Some(1));
         }
+    }
+}
+
+#[cfg(test)]
+mod audit3_tests {
+    use super::*;
+
+    fn host(port: u16, pid: Option<u32>, name: &str) -> PortEntry {
+        PortEntry {
+            port,
+            proto: Protocol::Tcp,
+            pid,
+            process: Some(name.to_string()),
+            cmdline: None,
+            cpu: Some(1.0),
+            mem_bytes: Some(1000),
+            source: Source::Proc,
+            container: None,
+            container_state: None,
+        }
+    }
+
+    #[test]
+    fn shrinking_filter_clamps_selection_into_view() {
+        let mut m = Model::new();
+        m.entries = vec![
+            host(1, Some(1), "a"),
+            host(2, Some(2), "b"),
+            host(3, Some(3), "c"),
+            host(4, Some(4), "d"),
+            host(5, Some(5), "e"),
+        ];
+        m.selected = 4; // cursor on the last row
+        let _ = update(&mut m, Msg::Key(Key::Char('/')));
+        for ch in "b".chars() {
+            let _ = update(&mut m, Msg::Key(Key::Char(ch)));
+        }
+        // visible is now just row "b" (index 1); cursor must clamp onto it.
+        assert_eq!(m.visible().len(), 1);
+        assert_eq!(m.selected, 0);
+        assert!(m.selected_entry().is_some());
+        // commit the filter (exit input mode), then arming must work again
+        // instead of silently doing nothing.
+        let _ = update(&mut m, Msg::Key(Key::Enter));
+        assert!(!m.filter_input);
+        let _ = update(&mut m, Msg::Key(Key::Char('x')));
+        assert!(m.pending_action.is_some());
+    }
+
+    #[test]
+    fn clearing_filter_keeps_cursor_in_bounds() {
+        let mut m = Model::new();
+        m.entries = vec![host(1, Some(1), "a"), host(2, Some(2), "b")];
+        m.filter_input = true;
+        let _ = update(&mut m, Msg::Key(Key::Char('z'))); // matches nothing
+        assert_eq!(m.visible().len(), 0);
+        assert_eq!(m.selected, 0); // saturating, never wraps
+        let _ = update(&mut m, Msg::Key(Key::Esc)); // clears filter
+        assert_eq!(m.visible().len(), 2);
+        assert!(m.selected < m.visible().len());
     }
 }

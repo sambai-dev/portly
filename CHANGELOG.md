@@ -33,7 +33,7 @@ First public release. Everything below shipped in one drop.
 
 ### Engineering
 - Elm-style pure `update(Model, Msg) -> Vec<Effect>` core; rendered frames deterministic under an injected clock.
-- 28 tests covering update transitions, pool replacement semantics, log generations, health classification, config parsing/clamping, and rendered-frame assertions.
+- 33 tests covering update transitions, pool replacement semantics, log generations, health classification, config parsing/clamping, and rendered-frame assertions.
 - CI on Linux/macOS/Windows: `cargo fmt --check`, `cargo clippy --all-targets -- -D warnings`, tests; release binaries for gnu+musl Linux, macOS arm/x64, Windows MSVC on tags.
 - Both feature sets (`--no-default-features` included) build warning-free.
 - Measured on Windows 11, 244 live services: scan p50 26.8 ms / p99 37.8 ms; idle TUI working set 25 MB; `--once` end-to-end median 513 ms (includes process spawn + Docker round-trip).

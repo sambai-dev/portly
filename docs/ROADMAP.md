@@ -9,7 +9,7 @@ Five weeks from empty folder to launched tool. Each week ends with something *sh
 - [x] Sort (port/CPU/mem) + text filter + help overlay — shipped
 - [x] **BONUS:** Docker containers merged into same table, logs pane, health dots, trend sparklines (pulled forward from weeks 2–3)
 - [x] Two-step kill with PID-reuse guard — verify_and_kill re-scans before terminating
-- [x] Frame + update tests green — 28 tests incl. rendered-frame assertions
+- [x] Frame + update tests green — 33 tests incl. rendered-frame assertions
 - [ ] **Publish v0.1 to crates.io immediately** — a mediocre published tool beats a perfect private one
 
 Definition of done: `cargo install portly` works on all three OSes and answers "what's on :3000" in <5 s with zero config.

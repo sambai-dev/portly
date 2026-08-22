@@ -190,7 +190,7 @@ PORTLY_CONFIG=./ci.toml portly     # project-local config
 ```sh
 cargo build                          # default features (docker)
 cargo build --no-default-features   # lean build without bollard
-cargo test                           # 28 tests
+cargo test                           # 33 tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 cargo run                            # the TUI

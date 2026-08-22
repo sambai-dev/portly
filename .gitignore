@@ -2,3 +2,4 @@
 portly.log
 *.snap.new
 Cargo.lock.bak
+docs/demo.gif

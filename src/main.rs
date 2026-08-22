@@ -137,12 +137,18 @@ fn docker_once_blocking() -> Option<Vec<model::PortEntry>> {
 // ------------------------------------------------------------------ TUI ---
 
 fn run_tui(cfg: Config) -> color_eyre::Result<()> {
+    // Arm the restoring panic hook BEFORE touching terminal state so any
+    // failure below (or a panic anywhere later) still hands back a sane tty.
+    set_panic_hook();
     enable_raw_mode()?;
-    execute!(stdout(), EnterAlternateScreen)?;
+    if let Err(err) = execute!(stdout(), EnterAlternateScreen) {
+        restore_terminal();
+        return Err(err.into());
+    }
     if cfg.theme.name != "none" {
+        // Mouse capture is best-effort polish; failure must not kill the app.
         let _ = execute!(stdout(), EnableMouseCapture);
     }
-    set_panic_hook();
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Msg>();
     let interval = Duration::from_millis(cfg.interval_ms);

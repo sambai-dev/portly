@@ -293,3 +293,16 @@ path = "/healthz"
         assert_eq!(Theme::by_name("LIGHT"), Theme::light());
     }
 }
+
+#[cfg(test)]
+mod audit3_tests {
+    use super::*;
+
+    #[test]
+    fn directory_as_config_path_falls_back_to_defaults() {
+        let dir = std::env::temp_dir().join("portly-config-dir-test");
+        std::fs::create_dir_all(&dir).unwrap();
+        assert_eq!(Config::load_from(Some(&dir)), Config::default());
+        let _ = std::fs::remove_dir(dir);
+    }
+}
