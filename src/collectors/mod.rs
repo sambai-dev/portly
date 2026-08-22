@@ -1,19 +1,28 @@
 pub mod process;
 pub mod sockets;
 
+pub use process::ProcIndex;
+
+use std::collections::{BTreeSet, HashMap};
 use std::thread::JoinHandle;
 use std::time::{Duration, Instant};
+
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::model::Msg;
+use crate::model::{Msg, PortEntry};
 
 /// Spawn the socket+process collector on a dedicated OS thread.
 ///
 /// One worker per source keeps failure isolated: if this scan errors we send
-/// `CollectorFailed` and keep going; nothing else in the app depends on it.
-/// Docker and health collectors join the same mpsc channel in v0.2/v0.3
-/// (they move onto tokio tasks when streaming arrives).
-pub fn spawn_collector(tx: UnboundedSender<Msg>, interval: Duration) -> JoinHandle<()> {
+/// `CollectorFailed` and keep going. Docker and health collectors join the
+/// same mpsc channel from their own threads.
+#[allow(clippy::too_many_arguments)]
+pub fn spawn_collector(
+    tx: UnboundedSender<Msg>,
+    interval: Duration,
+    ignored: BTreeSet<u16>,
+    labels: HashMap<u16, String>,
+) -> JoinHandle<()> {
     std::thread::Builder::new()
         .name("portly-collector".into())
         .spawn(move || {
@@ -25,9 +34,8 @@ pub fn spawn_collector(tx: UnboundedSender<Msg>, interval: Duration) -> JoinHand
             loop {
                 std::thread::sleep(interval);
                 let started = Instant::now();
-                match sockets::scan_sockets() {
-                    Ok(mut entries) => {
-                        index.enrich(&mut entries);
+                match scan_and_enrich(&mut index, &ignored, &labels) {
+                    Ok(entries) => {
                         let found = entries.len();
                         let duration_ms = started.elapsed().as_millis() as u64;
                         tracing::debug!(found, duration_ms, "scan complete");
@@ -46,4 +54,34 @@ pub fn spawn_collector(tx: UnboundedSender<Msg>, interval: Duration) -> JoinHand
             tracing::debug!("collector stopped");
         })
         .expect("failed to spawn collector thread")
+}
+
+fn scan_and_enrich(
+    index: &mut process::ProcIndex,
+    ignored: &BTreeSet<u16>,
+    labels: &HashMap<u16, String>,
+) -> std::io::Result<Vec<PortEntry>> {
+    let mut entries = sockets::scan_sockets()?;
+    entries.retain(|e| !ignored.contains(&e.port));
+    index.enrich(&mut entries, labels);
+    Ok(entries)
+}
+
+/// One headless pass for `portly --once` and benchmarks.
+pub fn run_once(
+    ignored: &BTreeSet<u16>,
+    labels: &HashMap<u16, String>,
+) -> std::io::Result<Vec<PortEntry>> {
+    let mut index = ProcIndex::new();
+    scan_and_enrich(&mut index, ignored, labels)
+}
+
+/// Same as [`run_once`] but reuses an existing [`ProcIndex`] so callers
+/// benchmarking or polling keep CPU-sample continuity across calls.
+pub fn run_once_into(
+    index: &mut ProcIndex,
+    ignored: &BTreeSet<u16>,
+    labels: &HashMap<u16, String>,
+) -> std::io::Result<usize> {
+    Ok(scan_and_enrich(index, ignored, labels)?.len())
 }

@@ -1,4 +1,4 @@
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::time::{Duration, Instant};
 
 use sysinfo::{Pid, ProcessesToUpdate, System};
@@ -16,6 +16,12 @@ pub struct ProcIndex {
     seen: HashSet<u32>,
 }
 
+impl Default for ProcIndex {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl ProcIndex {
     pub fn new() -> Self {
         Self {
@@ -26,7 +32,9 @@ impl ProcIndex {
     }
 
     /// Fill process name / memory / CPU for every entry with a visible PID.
-    pub fn enrich(&mut self, entries: &mut [PortEntry]) {
+    /// Config labels fill in friendly names only where the OS gives us none —
+    /// raw evidence always wins over inference.
+    pub fn enrich(&mut self, entries: &mut [PortEntry], labels: &HashMap<u16, String>) {
         let now = Instant::now();
         let cpu_valid = self
             .last_refresh
@@ -61,6 +69,11 @@ impl ProcIndex {
             }
             if e.pid.is_some() {
                 e.source = Source::Proc;
+            }
+            if e.process.is_none() {
+                if let Some(label) = labels.get(&e.port) {
+                    e.process = Some(label.clone());
+                }
             }
             self.seen.insert(pid);
         }

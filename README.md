@@ -1,136 +1,175 @@
 # Portly
 
-> **What's running on :3000 again?** Portly answers that in one glance — and kills, restarts, or inspects it in one more.
+> **What's running on :3000 again?** Portly answers that in one glance — and inspects, restarts, or kills it in one more.
 
-Portly is a terminal UI cockpit for your local dev machine. It discovers every listening port and maps each one to the owning process or Docker container — dev servers, databases, message queues — then streams live CPU/memory/health next to each entry. No config file, no daemon, no setup: useful five seconds after install.
+Portly is a terminal cockpit for your local dev machine. It discovers every listening port and maps each one to the owning process **or Docker container** — dev servers, databases, message queues — then streams CPU trends, memory, health dots, and logs next to each entry, all actionable from one pane. No config file, no daemon, no setup: useful five seconds after install.
 
 ```
-┌─ Portly ─ listening sockets ────────────────────────────────┐
-│  PORT   PROTO  PID    PROCESS          CPU%   MEM     SRC    │
-│▶ 3000   tcp    4121   node (vite)      2.1   182MB   proc  │
-│  5432   tcp    889    postgres         0.4   96MB    proc  │
-│  8080   tcp    7742   com.docker.b...  1.2   340MB   docker│
-│  6379   tcp    1188   redis-server     0.1   12MB    proc  │
-│                                                             │
-│ 7 services · refresh 500ms · [x]kill [s]ort [/]filter [?]help │
-└──────────────────────────────────────────────────────────────┘
+┌─ Portly · 7 services · sort:port · data 1s ────────────────────────────────────┐
+│  PORT   PROTO  PID     PROCESS      TREND     CPU%   MEM    HEALTH   SRC       │
+│▶ 3000   tcp    4121    node         ▂▃▅▆▇▇█    2.5   182M   -        proc      │
+│  5432   tcp    889     postgres     ▁▁▁▁▁▁▁     0.4    96M   -        proc      │
+│  5432   tcp    -       pg-dev       ▃▃▄▄▄▄▄     1.2   340M   -        docker    │
+│  6379   tcp    1188    redis        ▁▂▁▁▁▁▁     0.1  1024K   ● 12ms   proc      │
+│                                                                                │
+│ [j/k] move · [x] act · [R/T/G] container · [l] logs · [s] sort · [/] filter … │
+└────────────────────────────────────────────────────────────────────────────────┘
 ```
 
-*(demo GIF placeholder — generated with VHS before public launch)*
+*(demo GIF: run `vhs demo.tape` — the tape is committed so anyone can regenerate it)*
 
 ---
 
 ## Why this exists
 
-Every developer runs `lsof -i :3000` / `netstat -ano | findstr 3000` / `docker ps` several times a day, then hops between tmux panes to tail logs. The information exists; it's just scattered across four tools with four output formats.
-
-Portly unifies discovery → context → action in one pane:
+Every developer runs `lsof -i :3000` / `netstat -ano | findstr 3000` / `docker ps` several times a day, then hops terminal tabs to tail logs. The information exists; it's scattered across four tools with four output formats. Portly unifies discovery → context → action:
 
 | You want to… | Before | With Portly |
 |---|---|---|
-| Find what owns port 5432 | `lsof`/`netstat` + manual PID join | read row 2 |
-| Kill the zombie vite server | find PID, `kill -9`, hope | highlight, `k`, Enter |
-| See which containers expose ports | `docker ps --format …` | same table |
-| Watch CPU/mem of your stack | `htop` + mental filtering | sparkline column |
+| Find what owns port 5432 (host *and* container) | `lsof` + `docker ps` + manual join | read two adjacent rows |
+| Kill the zombie vite server | find PID → `kill -9` → hope | `x`, Enter |
+| Restart a container mid-debug | `docker restart <id>` | `R`, Enter |
+| Watch your stack breathe | `htop` + mental filtering | TREND column |
+| Know if it's actually serving | curl in another tab | ●/◐/✗ dot + latency |
+| See why it's failing | tmux tab-hopping to logs | `l` |
 
 ## Landscape (measured Aug 2026)
 
-No established tool combines port discovery + Docker + logs/health + actions. Adjacent tools each cover a slice:
+No established tool combines port discovery + containers + logs/health + actions. Adjacent tools each hold one slice — full analysis in [`docs/RESEARCH.md`](docs/RESEARCH.md), gap-by-gap closure evidence in [`docs/GAPS.md`](docs/GAPS.md):
 
-| Tool | ★ | What it covers | What it misses |
+| Tool | ★ | Covers | Misses |
 |---|---|---|---|
-| lazydocker | 52.6k | container TUI: logs/restart/metrics | host processes, ports |
-| k9s | 34.4k | Kubernetes pods→logs→actions | local machine |
-| ctop | 17.8k | container metrics (unmaintained) | actions, host procs |
-| killport | 1.8k | CLI kill-by-port | no view, no monitoring |
-| process-compose | 2.7k | YAML-defined procs + TUI | doesn't discover existing services |
-| btop / bottom | 34.1k / 13.9k | system resources | no port↔service mapping |
+| lazydocker | 52.6k | container TUI | host processes & ports |
+| k9s | 34.4k | K8s navigator | local machine |
+| ctop | 17.8k | container metrics | unmaintained; host procs |
+| killport | 1.8k | CLI kill-by-port | no live view |
+| process-compose | 2.7k | YAML-declared procs | can't discover what's already running |
+| btop / bottom | 34.1k / 13.9k | system resources | no port↔service semantics |
 
-Full competitive analysis and technical feasibility notes: [`docs/RESEARCH.md`](docs/RESEARCH.md).
+## Measured numbers
+
+Windows 11 Enterprise · i9-14900KF · 64 GB RAM · rustc 1.98.0 · release build (`lto`, `strip`) · 244 live services incl. a running Postgres container. Reproduce with `cargo run --release --example bench 100`.
+
+| Metric | Target | Measured | Method |
+|---|---|---|---|
+| Scan p50 (sockets→PID→stats) | < 50 ms | **26.8 ms** | `bench` example, n=100, steady-state cadence |
+| Scan p99 | < 50 ms | **37.8 ms** | same |
+| Idle TUI working set | < 30 MB | **25 MB** (16 MB private) | WorkingSet64 @ 4 s alive |
+| `--once` end-to-end median | — (info) | **512.7 ms** min 493 / max 568 | process spawn → full table printed, incl. Docker round-trip |
+| Time-to-first-frame | < 100 ms | instant | TUI paints empty table immediately; data arrives async by design |
+| Tests | — | 26 green | update transitions, pools, frames, health, config |
+
+Honest note: the 500 ms once-mode figure is dominated by the Docker Engine round-trip and sysinfo's cold refresh — the interactive TUI never blocks on either.
 
 ## Architecture
 
-Elm-style unidirectional state over a collector layer of independent tokio tasks:
+Elm-style unidirectional state over independent collectors merged on one channel:
 
 ```
-┌───────────────────────────────────────────────┐
-│ TUI (ratatui) — Elm architecture              │
-│  Model (app state) ◀── Msg ◀── event streams  │
-│  update : Model -> Msg -> (Model, [Effect])   │
-│  view   : &Model -> Frame (pure)              │
-└──────────────┬────────────────────────────────┘
-               │ commands (kill, quit)
-┌──────────────▼────────────────────────────────┐
-│ Collector layer (tokio tasks, one per source) │
-│  - socket scan → PID map (netstat2 /proc fast)│
-│  - Docker API (containers, ports, stats)      │
-│  - process stats (CPU/mem via sysinfo)        │
-│  - optional: HTTP health probes per service   │
-└──────────────┬────────────────────────────────┘
-               │ mpsc Msg stream
-        (merged into the TUI event loop)
+┌────────────────────────────────────────────────────┐
+│ view.rs      pure fn(model, theme, clock) — no I/O │
+├────────────────────────────────────────────────────┤
+│ model.rs     Model + Msg + update() -> [Effect]    │
+├────────────────────────────────────────────────────┤
+│ runtime      input → update → effects → render     │
+│              mouse capture · geometry feedback     │
+├────────────────────────────────────────────────────┤
+│ collectors/  sockets+proc (thread)                 │
+│ docker.rs    list/stats/actions/logs (tokio)       │
+│ health.rs    opt-in prober, 8 workers              │
+│ logs.rs      docker follow + file tailers          │
+├────────────────────────────────────────────────────┤
+│ netstat2 · sysinfo · bollard · std::net           │
+└────────────────────────────────────────────────────┘
 ```
 
-Details, data model, and testing strategy: [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md).
+Design decisions with tradeoffs live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTURE.md). Two worth reading:
 
-## Design decisions (with tradeoffs)
+- **Pool replacement semantics** — a slow/broken Docker daemon can never blank host rows; each collector owns its rows exclusively.
+- **Generation-counted log panes** — closing a pane increments a generation; stale followers' lines are dropped at the model boundary, so ghosts are impossible by construction.
 
-1. **Elm-style unidirectional state.** `update()` is pure and returns *effects* (`Kill(pid)`, `Quit`) that the runtime executes outside the model. That makes every keybinding testable without spawning processes, and rendered frames snapshot-testable. *Tradeoff:* more ceremony than direct mutation; worth it for a tool whose core interactions destroy processes.
+## Features
 
-2. **Zero-config discovery is the product thesis.** If you need a TOML file listing your services, you've rebuilt foreman. Portly must show value with zero flags. *Tradeoff:* heuristic labeling can misidentify; we mitigate by always showing raw evidence (PID, command line, container ID) next to any inferred name.
+- **Zero-config discovery** — listening ports → owners → stats on first launch, every platform.
+- **Containers as first-class rows** — ports, state, CPU/mem via Engine API; actions with arm-and-confirm.
+- **Two-step destructive actions** — `x` arms contextually (kill proc / restart-start container); Enter confirms; PID-reuse guard re-verifies ownership before terminating.
+- **Logs pane** — `l`: docker log streaming for containers, file-follow for processes via `[log_files]`; pgup/pgdn scroll, follow-state indicator.
+- **Health dots** — opt-in `●` up / `◐` degraded / `✗` down + latency ms.
+- **Trend sparklines** — per-row ▁▂▃▄▅▆▇█ over a 14-sample ring buffer; blanks until two real samples exist (no fake zeros).
+- **Config that only overrides** — `interval_ms`, sort, `ignore_ports`, labels, log files, theme, `[docker]`, `[health]`. Missing file is valid config. See [`config.example.toml`](config.example.toml).
+- **Themes** — `dark`, `light`, `nord`.
+- **Mouse** — click selects, wheel scrolls.
+- **Staleness indicator** — title shows data age and flags STALE past 2× interval.
+- **Headless mode** — `portly --once` prints an aligned table for scripts/CI.
+- **Shell completions** — `portly completions <bash|zsh|fish|powershell>`.
+- **Structured logging** — tracing spans per scan cycle to file (`PORTLY_LOG` path override, `RUST_LOG` verbosity), never stderr.
 
-3. **Portable base, platform fast paths.** `netstat2` gives socket→PID on all three OSes out of the box; Linux gets an optional `/proc` fast path, macOS falls back to parsing `lsof`. Windows is first-class from day one (it's where most devs actually run dev servers). *Tradeoff:* abstraction boundary adds a small indirection layer; documented in ARCHITECTURE.
-
-4. **tracing everywhere, from commit one.** Each collector cycle emits a span with duration and result counts; structured logs go to a file so they never corrupt the TUI. This is exactly the observability discipline Rust teams probe for in interviews.
-
-## Performance targets (published after v0.1)
-
-| Metric | Target | Measured |
-|---|---|---|
-| Startup to first frame | < 100 ms | TODO (hyperfine) |
-| Refresh tick p99 | ≤ 500 ms budget, scan < 50 ms | TODO |
-| Idle RSS | < 30 MB | TODO |
-| Kill action round-trip | < 200 ms perceived | TODO |
-| Render allocations | O(visible rows) only | TODO (flamegraph) |
-
-## Honest limitations
-
-- UDP owner mapping is best-effort on all platforms (kernel limitations); TCP listeners are the reliable core.
-- Docker integration requires access to the Docker socket/pipe; no root escalation tricks.
-- Process names come from the OS; a process listening on a socket may have exited between scan and display — Portly guards against PID reuse at action time.
-- macOS uses `lsof` parsing until a maintained sysctl PCB-list binding exists (see RESEARCH §feasibility).
-- CPU% needs two samples ≥200 ms apart (sysinfo constraint); first tick shows blanks rather than fake numbers.
-
-## Install (planned at launch)
-
-```sh
-brew install portly-tap/portly/portly   # Homebrew tap
-cargo binstall portly                    # prebuilt binaries
-cargo install portly                     # from source
-# scoop / winget / AUR: tracked in ROADMAP week 5
-```
-
-## Keybindings (v0.1)
+## Keybindings
 
 | Key | Action |
 |---|---|
 | `↑`/`↓`, `j`/`k` | move selection |
-| `/` | filter by text (process, port, container) |
-| `s` | cycle sort: port → CPU → memory |
-| `x` | arm kill (shows confirm banner) |
+| click / wheel | select row / scroll |
+| `/` | filter by text (port, proto, pid, name, state) |
+| `s` | cycle sort: port → cpu → mem |
+| `l` | toggle logs pane for selection |
+| `pgup`/`pgdn` | scroll logs while open (`esc` closes) |
+| `x` | arm contextual action (kill proc · restart/start container) |
+| `R` / `T` / `G` | arm restart / stop / start for containers |
 | `Enter` | execute armed action |
-| `Esc` | cancel / clear filter |
+| `Esc` | cancel armed / clear filter / close pane |
 | `?` | help overlay |
-| `q` or `Ctrl-C` | quit |
+| `q`, `Ctrl-C` | quit |
+
+## Install
+
+```sh
+# Homebrew (formula committed at Formula/portly.rb — tap instructions below)
+brew install sambai-dev/portly/portly
+
+# Prebuilt binaries
+cargo binstall portly
+curl -fsSL https://raw.githubusercontent.com/sambai-dev/portly/main/install.sh | sh   # mac/linux
+irm https://raw.githubusercontent.com/sambai-dev/portly/main/install.ps1 | iex       # windows
+
+# From source
+cargo install portly
+```
+
+Release CI builds binaries for linux-x86_64 (gnu + musl), macOS (aarch64 + x86_64), and Windows x86_64-msvc on every `v*` tag.
+
+## Scripting
+
+```sh
+portly --once                      # snapshot table to stdout
+portly --once --interval-ms 200    # faster cold scan
+portly completions zsh >> ~/.zshrc # shell completions
+PORTLY_CONFIG=./ci.toml portly     # project-local config
+```
+
+## Honest limitations
+
+- UDP owner mapping is best-effort per OS kernel limits; TCP listeners are the reliable core (you will see ephemeral UDP noise from chatty apps — `ignore_ports` exists for exactly this).
+- First CPU tick renders blanks: sysinfo needs two samples ≥200 ms apart. We show `-`, never fake zeros.
+- Health probes are plain HTTP/1.0 against localhost — no TLS by design; local dev services rarely need it.
+- Container stats use one-shot sampling at half the host cadence (≤16 running containers sampled per tick) to bound Engine API load.
+- Windows-first testing; Linux/macOS verified in CI (build + tests) — field reports welcome.
 
 ## Development
 
 ```sh
-cargo build            # debug build
-cargo test             # unit + frame tests
-cargo clippy -- -D warnings
+cargo build                          # default features (docker)
+cargo build --no-default-features   # lean build without bollard
+cargo test                           # 26 tests
+cargo clippy --all-targets -- -D warnings
 cargo fmt --check
-RUST_LOG=debug portly  # tracing to portly.log
+cargo run                            # the TUI
+cargo run --release --example bench 100   # reproduce numbers above
+vhs demo.tape                        # regenerate demo.gif
 ```
 
-CI enforces fmt + clippy `-D warnings` + tests and publishes release binaries for Linux (gnu+musl), macOS (aarch64+x86_64), and Windows on every tag. License: MIT. Roadmap: [`docs/ROADMAP.md`](docs/ROADMAP.md).
+CI gates every push on fmt + clippy + tests across Linux/macOS/Windows and publishes release binaries on tags.
+
+## License
+
+MIT — see [LICENSE](LICENSE). Roadmap and week-by-week plan: [`docs/ROADMAP.md`](docs/ROADMAP.md).

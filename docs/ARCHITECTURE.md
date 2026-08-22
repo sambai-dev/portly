@@ -147,3 +147,49 @@ enabled = true
 ```
 
 Zero-config remains the thesis: the file exists only to *override* good defaults, never required.
+
+---
+
+## Addendum — v0.1.0 shipped modules
+
+The tables above describe the plan; these are the as-built additions.
+
+### Docker collector (`docker.rs`, feature-gated)
+
+Owns its rows exclusively: `Msg::Containers` replaces only rows where
+`source == Docker`; host rows survive any Docker failure by construction
+(pool-replacement truth table in `model::replace_pool`). Runs on a dedicated
+OS thread hosting a current-thread tokio runtime; discovery at 2× the host
+interval; one-shot stats per running container capped at 16/tick using the
+Engine-API CPU-delta formula; all option structs come from the OpenAPI-generated
+`bollard::query_parameters` builders (the legacy `container::*Options` are
+deprecated in bollard 0.19).
+
+### Health prober (`health.rs`)
+
+Off by default. A shared `Arc<Mutex<BTreeSet<u16>>>` port feed is refreshed by
+the runtime on every host scan; the prober rounds through it every
+`[health].interval_ms` with 8 scoped workers and plain HTTP/1.0 GETs
+(std::net only — no TLS dependency for localhost probes). Results flow as
+`Msg::HealthUpdate(HashMap<u16, (Health, Option<u16 ms>)>)`.
+
+### Log followers (`logs.rs` + docker log follow)
+
+Every pane session mints a monotonically increasing generation. Lines arrive
+as `Msg::LogLine { gen, line }`; the model drops lines whose gen is stale, so
+a closed pane cannot be resurrected by an in-flight follower. Followers exit
+via `Arc<AtomicBool>` stop flags checked between chunks/reads.
+
+### Mouse & geometry
+
+crossterm mouse capture feeds `Msg::Mouse(Click(y)|ScrollUp|ScrollDown)`.
+Rendering stays pure: each frame publishes the table-body rect through a
+thread-local slot (`view::take_geometry`), which the runtime converts into
+`Msg::FrameGeometry` for hit-testing — geometry flows *through* the Elm loop,
+never around it.
+
+### Headless mode
+
+`--once` runs one synchronous scan (+ optional Docker list) and prints the
+aligned table from `view::snapshot_table`. This doubles as the benchmarking
+entry point (`examples/bench.rs` measures steady-state cadence over n runs).

@@ -33,6 +33,8 @@ pub fn scan_sockets() -> io::Result<Vec<PortEntry>> {
                         cpu: None,
                         mem_bytes: None,
                         source: Source::Kernel,
+                        container: None,
+                        container_state: None,
                     });
                 }
             }
@@ -47,6 +49,8 @@ pub fn scan_sockets() -> io::Result<Vec<PortEntry>> {
                         cpu: None,
                         mem_bytes: None,
                         source: Source::Kernel,
+                        container: None,
+                        container_state: None,
                     });
                 }
             }

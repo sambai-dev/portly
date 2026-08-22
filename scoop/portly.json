@@ -1,0 +1,21 @@
+{
+    "version": "0.1.0",
+    "homepage": "https://github.com/sambai-dev/portly",
+    "license": "MIT",
+    "description": "Terminal cockpit for everything running on your machine's ports - k9s for localhost.",
+    "architecture": {
+        "64bit": {
+            "url": "https://github.com/sambai-dev/portly/releases/download/v0.1.0/portly-x86_64-pc-windows-msvc.zip",
+            "hash": "__SCOOP_SHA256__"
+        }
+    },
+    "bin": "portly.exe",
+    "checkver": "github",
+    "autoupdate": {
+        "architecture": {
+            "64bit": {
+                "url": "https://github.com/sambai-dev/portly/releases/download/v$version/portly-x86_64-pc-windows-msvc.zip"
+            }
+        }
+    }
+}

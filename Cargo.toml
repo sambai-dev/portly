@@ -9,17 +9,36 @@ readme = "README.md"
 keywords = ["tui", "ports", "devtools", "docker", "process"]
 categories = ["command-line-utilities", "development-tools"]
 
+[features]
+default = ["docker"]
+docker = ["dep:bollard", "dep:futures-util"]
+
 [dependencies]
 ratatui = "0.29"
 crossterm = "0.28"
-tokio = { version = "1", features = ["sync"] }
+tokio = { version = "1", features = ["sync", "rt", "time", "net"] }
 netstat2 = "0.9"
 sysinfo = "0.31"
 clap = { version = "4", features = ["derive"] }
+clap_complete = "4"
 color-eyre = "0.6"
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+dirs = "6"
+ureq = { version = "2", default-features = false }
+bollard = { version = "0.19", optional = true }
+futures-util = { version = "0.3", optional = true }
 
 [profile.release]
 lto = true
 strip = true
+
+[package.metadata.binstall]
+pkg-url = "{ repo }/releases/download/v{ version }/portly-{ target }{ archive-suffix }"
+pkg-fmt = "tgz"
+bin-dir = "portly"
+
+[package.metadata.binstall.overrides.x86_64-pc-windows-msvc]
+pkg-fmt = "zip"

@@ -1,0 +1,39 @@
+# Portly configuration — every value here is optional; delete anything you
+# don't want to override. Missing file = defaults. Location:
+#   Linux/macOS: ~/.config/portly/config.toml
+#   Windows:     %APPDATA%\portly\config.toml
+#   Override:    PORTLY_CONFIG=/path/to/portly.toml  (or --config flag)
+
+# Collector refresh cadence (100..60000, default 500).
+interval_ms = 500
+
+# Default sort: "port" | "cpu" | "mem" (default "port").
+sort = "port"
+
+# Ports never shown or probed. Ephemeral UDP noise is a common use.
+ignore_ports = [5353]
+
+# Friendly names for ports where the OS gives no process name.
+# Raw evidence always wins: if a PID is found, the real name stays.
+[labels]
+3000 = "vite dev"
+8000 = "django runserver"
+
+# Enable `l` logs pane for plain processes (containers always work).
+[log_files]
+8080 = "/var/log/myapi/dev.log"
+
+# Theme: "dark" | "light" | "nord" (default "dark").
+theme = "dark"
+
+[docker]
+# Merge containers into the table (default true). Degrades gracefully
+# when no daemon is reachable — host rows keep working either way.
+enabled = true
+
+[health]
+# OFF by default: probing must never surprise you with outbound traffic.
+enabled = false
+interval_ms = 2000
+timeout_ms = 750
+path = "/"
