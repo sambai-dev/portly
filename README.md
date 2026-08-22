@@ -1,8 +1,31 @@
 # Portly
 
+[![CI](https://github.com/sambai-dev/portly/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/sambai-dev/portly/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/sambai-dev/portly)](https://github.com/sambai-dev/portly/releases/latest)
+![Platforms](https://img.shields.io/badge/platforms-linux%20%7C%20macos%20%7C%20windows-blue)
+[![License: MIT](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
 > **What's running on :3000 again?** Portly answers that in one glance — and inspects, restarts, or kills it in one more.
 
 Portly is a terminal cockpit for your local dev machine. It discovers every listening port and maps each one to the owning process **or Docker container** — dev servers, databases, message queues — then streams CPU trends, memory, health dots, and logs next to each entry, all actionable from one pane. No config file, no daemon, no setup: useful five seconds after install.
+
+## Quick start
+
+```sh
+# macOS / Linux
+brew install sambai-dev/portly/portly        # Homebrew tap
+# or
+curl -fsSL https://raw.githubusercontent.com/sambai-dev/portly/main/install.sh | sh
+
+# Windows (PowerShell)
+irm https://raw.githubusercontent.com/sambai-dev/portly/main/install.ps1 | iex
+
+# Any platform with Rust
+cargo install portly --locked
+
+portly          # live cockpit
+portly --once   # headless snapshot table for scripts/CI
+```
 
 ```
 ┌─ Portly · 7 services · sort:port · data 1s ────────────────────────────────────┐
@@ -124,7 +147,7 @@ Design decisions with tradeoffs live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTU
 ## Install
 
 ```sh
-# Homebrew (formula committed at Formula/portly.rb — tap instructions below)
+# Homebrew — live tap, sha256-pinned to release tarballs
 brew install sambai-dev/portly/portly
 
 # Prebuilt binaries
@@ -132,11 +155,11 @@ cargo binstall portly
 curl -fsSL https://raw.githubusercontent.com/sambai-dev/portly/main/install.sh | sh   # mac/linux
 irm https://raw.githubusercontent.com/sambai-dev/portly/main/install.ps1 | iex       # windows
 
-# From source
-cargo install portly
+# From source (crates.io publish pending first owner login; use git in the meantime)
+cargo install --git https://github.com/sambai-dev/portly --locked
 ```
 
-Release CI builds binaries for linux-x86_64 (gnu + musl), macOS (aarch64 + x86_64), and Windows x86_64-msvc on every `v*` tag.
+Release CI builds binaries for linux-x86_64 (gnu + musl), macOS (aarch64 + x86_64), and Windows x86_64-msvc on every `v*` tag — grab them from [Releases](https://github.com/sambai-dev/portly/releases/latest). The scoop manifest lives at [`scoop/portly.json`](scoop/portly.json) (`scoop bucket add portly https://github.com/sambai-dev/portly` once a bucket wrapper lands).
 
 ## Scripting
 
@@ -154,6 +177,13 @@ PORTLY_CONFIG=./ci.toml portly     # project-local config
 - Health probes are plain HTTP/1.0 against localhost — no TLS by design; local dev services rarely need it.
 - Container stats use one-shot sampling at half the host cadence (≤16 running containers sampled per tick) to bound Engine API load.
 - Windows-first testing; Linux/macOS verified in CI (build + tests) — field reports welcome.
+
+## Status
+
+- **v0.1.0 released** — binaries for linux (gnu+musl), macOS (arm64+x64), Windows: [download](https://github.com/sambai-dev/portly/releases/latest).
+- **Homebrew tap live**: [`sambai-dev/homebrew-portly`](https://github.com/sambai-dev/homebrew-portly), formula pinned to release tarball sha256s.
+- **crates.io publish pending** owner `cargo login` — until then `cargo install --git` works from this repo.
+- CI green on all three platforms; both feature sets (`--no-default-features` included) build warning-free.
 
 ## Development
 
