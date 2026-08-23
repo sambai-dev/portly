@@ -160,7 +160,17 @@ irm https://raw.githubusercontent.com/sambai-dev/portly/main/install.ps1 | iex  
 cargo install --git https://github.com/sambai-dev/portly --locked
 ```
 
-Release CI builds binaries for linux-x86_64 (gnu + musl), macOS (aarch64 + x86_64), and Windows x86_64-msvc on every `v*` tag — grab them from [Releases](https://github.com/sambai-dev/portly/releases/latest). The scoop manifest lives at [`scoop/portly.json`](scoop/portly.json) (`scoop bucket add portly https://github.com/sambai-dev/portly` once a bucket wrapper lands).
+Release CI builds binaries for linux-x86_64 (gnu + musl), macOS (aarch64 + x86_64), and Windows x86_64-msvc on every `v*` tag — grab them from [Releases](https://github.com/sambai-dev/portly/releases/latest).
+
+### Verifying downloads
+
+Every tagged release ships a `SHA256SUMS.txt` covering all assets. From your download directory:
+
+```sh
+sha256sum -c SHA256SUMS.txt   # macOS: shasum -a 256 -c SHA256SUMS.txt
+```
+
+The scoop manifest lives at [`scoop/portly.json`](scoop/portly.json); its autoupdate reads per-release hashes straight from that `SHA256SUMS.txt`. (`scoop bucket add portly https://github.com/sambai-dev/portly` will work once a bucket wrapper lands.)
 
 ## Scripting
 

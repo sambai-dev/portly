@@ -86,3 +86,25 @@ jobs:
           files: |
             portly-*.tar.gz
             portly-*.zip
+
+  release-checksums:
+    # One SHA256SUMS.txt for whatever portly-* assets the matrix uploaded,
+    # so downloads are verifiable without trusting the download page.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download release assets
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'portly-*' --dir dist
+      - name: Generate SHA256SUMS.txt
+        run: |
+          cd dist
+          sha256sum portly-* > ../SHA256SUMS.txt
+      - name: Upload checksums
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber

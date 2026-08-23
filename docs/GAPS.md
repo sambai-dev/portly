@@ -17,7 +17,7 @@ lazydocker (52.6k★), k9s (34.4k★), btop++ (34.1k★), process-compose (2.7k�
 | 7 | Data staleness indicator when refresh falls behind | Homedash "freshness indicators… mark stale snapshots" | title shows data age; ">2×interval" marks STALE (view.rs, passed clock keeps render pure) |
 | 8 | Headless / non-TTY behavior for scripting & CI | lerd exits non-zero when stdout isn't a TTY; Homedash --test-mode | `portly --once` prints snapshot table and exits; doubles as bench harness input |
 | 9 | Field-aware filtering (`state:running` style) | Homedash filter tokens | v0.1 substring filter covers port/proto/pid/name/container; field tokens deferred to v0.2 (documented honestly here, not hidden) |
-| 10 | Distribution kit parity (brew/scoop/binstall/GIF/install script) | every mature tool ships all of these | install.sh/.ps1, Formula/portly.rb (real sha256 of tag tarball), scoop manifest, demo.tape for VHS, release CI matrix |
+| 10 | Distribution kit parity (brew/scoop/binstall/GIF/install script) | every mature tool ships all of these | install.sh/.ps1, Formula/portly.rb (real sha256 of tag tarball), release CI now generates SHA256SUMS.txt onto every tagged release (from the next tag onward; v0.1.0 gets a retroactive SHA256SUMS attached separately), scoop manifest with autoupdate hashes pulled from that same SHA256SUMS.txt (a bucket-repo wrapper is still needed before `scoop bucket add` works), demo.tape for VHS |
 
 Deliberately **not** copied (scope discipline): weather panels, compose-stack grouping,
 MCP/AI integration, in-TUI installers. Portly's thesis is discovery of *what is already

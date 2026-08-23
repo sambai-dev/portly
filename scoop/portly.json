@@ -14,7 +14,11 @@
     "autoupdate": {
         "architecture": {
             "64bit": {
-                "url": "https://github.com/sambai-dev/portly/releases/download/v$version/portly-x86_64-pc-windows-msvc.zip"
+                "url": "https://github.com/sambai-dev/portly/releases/download/v$version/portly-x86_64-pc-windows-msvc.zip",
+                "hash": {
+                    "url": "https://github.com/sambai-dev/portly/releases/download/v$version/SHA256SUMS.txt",
+                    "find": "^([A-Fa-f0-9]{64})\\s+\\*?portly-x86_64-pc-windows-msvc\\.zip$"
+                }
             }
         }
     }
