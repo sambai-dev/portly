@@ -3,6 +3,7 @@ use portly::config;
 #[cfg(feature = "docker")]
 use portly::docker;
 use portly::health;
+use portly::json;
 use portly::logs;
 use portly::model;
 use portly::view;
@@ -49,6 +50,10 @@ struct Cli {
     #[arg(long)]
     once: bool,
 
+    /// With --once: emit one machine-readable JSON object instead of the table
+    #[arg(long)]
+    json: bool,
+
     /// Config file path (default: $PORTLY_CONFIG or system config dir)
     #[arg(short, long)]
     config: Option<std::path::PathBuf>,
@@ -79,11 +84,18 @@ fn main() -> color_eyre::Result<()> {
         cfg.interval_ms = ms.clamp(100, 60_000);
     }
 
+    // `--json` shapes headless output only; the live dashboard has no JSON
+    // form, so refuse before touching terminal state (same family as D1).
+    if let Some(reason) = json_without_once_blocker(cli.once, cli.json) {
+        eprintln!("portly: {reason}");
+        std::process::exit(2);
+    }
+
     if cli.once {
         // Audit U2: headless consumers parse stdout; a failed scan must be
         // one plain stderr line plus a non-zero exit — never a color-eyre
         // multi-page report.
-        if let Err(err) = run_once_mode(&cfg) {
+        if let Err(err) = run_once_mode(&cfg, cli.json) {
             eprintln!("{}", once_failure_line(&err));
             std::process::exit(1);
         }
@@ -108,10 +120,18 @@ fn dashboard_tty_blocker(is_terminal: bool) -> Option<&'static str> {
         .then_some("live dashboard needs a terminal; use `portly --once` for a single snapshot")
 }
 
+/// Pure flag-combination decision (unit-tested): `--json` is a headless-only
+/// output mode, so bare `portly --json` must fail fast with the working pair.
+fn json_without_once_blocker(once: bool, json: bool) -> Option<&'static str> {
+    (json && !once).then_some(
+        "--json needs --once; the live dashboard has no JSON form — use `portly --json --once`",
+    )
+}
+
 // ------------------------------------------------------------ headless ----
 /// Errors surface via [`once_failure_line`] at the call site, so a scan
 /// failure can never fall through to color-eyre.
-fn run_once_mode(cfg: &Config) -> std::io::Result<()> {
+fn run_once_mode(cfg: &Config, as_json: bool) -> std::io::Result<()> {
     let started = Instant::now();
     #[cfg_attr(not(feature = "docker"), allow(unused_mut))]
     let mut entries = collectors::run_once(&cfg.ignore_ports, &cfg.labels)?;
@@ -127,7 +147,16 @@ fn run_once_mode(cfg: &Config) -> std::io::Result<()> {
     let mut m = Model::new();
     m.entries = entries;
     m.sort = cfg.sort;
-    print!("{}", view::snapshot_table(&m));
+    if as_json {
+        // Serialize the same snapshot the table renders from — never scrape
+        // the rendered text. A serialization failure (unreachable for this
+        // payload) flows through U2's plain-stderr-line path.
+        let text = serde_json::to_string_pretty(&json::snapshot(&m))
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        println!("{text}");
+    } else {
+        print!("{}", view::snapshot_table(&m));
+    }
     tracing::info!(
         duration_ms = started.elapsed().as_millis() as u64,
         services = m.entries.len(),
@@ -535,6 +564,37 @@ mod d2_docker_skip_tests {
             assert!(!line.contains('\n'), "one line only: {line:?}");
             assert!(line.starts_with("portly: docker:"), "{line}");
         }
+    }
+}
+
+#[cfg(test)]
+mod json_flag_tests {
+    use super::*;
+
+    #[test]
+    fn bare_json_is_blocked() {
+        assert!(json_without_once_blocker(false, true).is_some());
+    }
+
+    #[test]
+    fn json_with_once_runs_headless() {
+        assert_eq!(json_without_once_blocker(true, true), None);
+    }
+
+    #[test]
+    fn plain_once_and_plain_live_are_unaffected() {
+        assert_eq!(json_without_once_blocker(true, false), None);
+        assert_eq!(json_without_once_blocker(false, false), None);
+    }
+
+    #[test]
+    fn blocker_message_advertises_json_once_pair() {
+        let msg = json_without_once_blocker(false, true).unwrap();
+        assert!(
+            msg.contains("--json --once"),
+            "must offer the exact working pair: {msg}"
+        );
+        assert!(!msg.contains('\n'), "one line only: {msg:?}");
     }
 }
 

@@ -123,7 +123,7 @@ Design decisions with tradeoffs live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTU
 - **Themes** — `dark`, `light`, `nord`.
 - **Mouse** — click selects a row; the wheel moves the selection and the viewport keeps it in view, so lists longer than one screen stay fully navigable.
 - **Staleness indicator** — title shows data age and flags STALE past 2× interval.
-- **Headless mode** — `portly --once` prints an aligned table for scripts/CI.
+- **Headless mode** — `portly --once` prints an aligned table for scripts/CI; `--json` swaps it for a stable machine-readable snapshot (see [Scripting](#scripting)).
 - **Shell completions** — `portly completions <bash|zsh|fish|powershell>`.
 - **Structured logging** — tracing spans per scan cycle to file (`PORTLY_LOG` path override, `RUST_LOG` verbosity), never stderr.
 - **Log location** — the default trace file is `<tmp>/portly.log` (e.g. `/tmp/portly.log` on Unix, `%TEMP%\portly.log` on Windows).
@@ -176,10 +176,41 @@ The scoop manifest lives at [`scoop/portly.json`](scoop/portly.json); its autoup
 
 ```sh
 portly --once                      # snapshot table to stdout
+portly --once --json               # machine-readable snapshot (schema below)
+portly --once --json | jq '.listeners[] | select(.port == 3000)'
 portly --once --interval-ms 200    # faster cold scan
 portly completions zsh >> ~/.zshrc # shell completions
 PORTLY_CONFIG=./ci.toml portly     # project-local config
 ```
+
+### JSON output (`--once --json`)
+
+`--json` swaps the rendered table for one stable, pretty-printed JSON object:
+
+```json
+{
+  "captured_at": "<RFC3339 UTC>",
+  "filter": "<active substring filter or null>",
+  "counts": { "listeners": 2, "processes": 1, "containers": 1 },
+  "listeners": [
+    { "port": 3000, "proto": "tcp", "pid": 4121, "process": "node", "cpu_pct": 2.5, "mem_bytes": 12582912, "source": "proc" },
+    { "port": 5432, "proto": "tcp", "pid": null, "process": "pg-dev", "cpu_pct": 1.25, "mem_bytes": 356515840, "source": "docker" }
+  ],
+  "processes": [
+    { "pid": 4121, "process": "node", "cpu_pct": 2.5, "mem_bytes": 12582912 }
+  ],
+  "containers": [
+    { "id": "abc123", "name": "pg-dev", "state": "running", "cpu_pct": 1.25, "mem_bytes": 356515840 }
+  ]
+}
+```
+
+- `captured_at` — RFC3339 UTC instant of the snapshot (millisecond precision).
+- `filter` — active substring filter, or `null` (reserved: `--once` runs unfiltered today).
+- `listeners` — one object per rendered row: PORT, PROTO, PID, PROCESS, CPU%, MEM (raw bytes), SRC. Container-backed rows carry their display name in `process` with `pid: null`, matching the table's `-`.
+- `processes` — host rows folded per PID (sorted by PID).
+- `containers` — Docker rows folded per container ID (sorted by ID): id, name, runtime state, latest stats.
+- Field names are snake_case in stable serde struct order; new fields may be added, existing ones are never renamed. `--json` without `--once` exits non-zero with a hint.
 
 ## Honest limitations
 

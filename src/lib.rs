@@ -8,6 +8,7 @@ pub mod config;
 #[cfg(feature = "docker")]
 pub mod docker;
 pub mod health;
+pub mod json;
 pub mod logs;
 pub mod model;
 pub mod view;
