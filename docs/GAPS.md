@@ -13,7 +13,7 @@ lazydocker (52.6k★), k9s (34.4k★), btop++ (34.1k★), process-compose (2.7k�
 | 3 | Health checks with state dots + latency | statui (latency sparklines), Homedash `health:unhealthy`, corsa healthCheck.url | opt-in prober: ● up / ◐ degraded / ✗ down + ms (src/health.rs) |
 | 4 | Per-row CPU trend visualization | Homedash CPU/RAM sparklines; statui visual sparklines | TREND column, ▁▂▃▅▇ glyphs over ring buffer (view.rs) |
 | 5 | TOML config + themes, zero-config default preserved | Homedash YAML w/ unknown-field rejection; statui layered TOML; corsa themes | `portly.toml`: interval, ignore_ports, labels, log_files, [docker], [health]; themes dark/light/nord (config.rs) |
-| 6 | Mouse click + wheel navigation | Homedash "click and scroll navigation"; lerd wheel scrolls cards | crossterm mouse capture: click selects row, wheel moves selection |
+| 6 | Mouse click + wheel navigation | Homedash "click and scroll navigation"; lerd wheel scrolls cards | crossterm mouse capture: click selects the row under the cursor (scroll-offset aware), wheel moves the selection and the viewport scrolls to keep it visible |
 | 7 | Data staleness indicator when refresh falls behind | Homedash "freshness indicators… mark stale snapshots" | title shows data age; ">2×interval" marks STALE (view.rs, passed clock keeps render pure) |
 | 8 | Headless / non-TTY behavior for scripting & CI | lerd exits non-zero when stdout isn't a TTY; Homedash --test-mode | `portly --once` prints snapshot table and exits; doubles as bench harness input |
 | 9 | Field-aware filtering (`state:running` style) | Homedash filter tokens | v0.1 substring filter covers port/proto/pid/name/container; field tokens deferred to v0.2 (documented honestly here, not hidden) |

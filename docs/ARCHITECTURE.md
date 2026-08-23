@@ -185,8 +185,11 @@ via `Arc<AtomicBool>` stop flags checked between chunks/reads.
 crossterm mouse capture feeds `Msg::Mouse(Click(y)|ScrollUp|ScrollDown)`.
 Rendering stays pure: each frame publishes the table-body rect through a
 thread-local slot (`view::take_geometry`), which the runtime converts into
-`Msg::FrameGeometry` for hit-testing — geometry flows *through* the Elm loop,
-never around it.
+`Msg::FrameGeometry` for hit-testing and viewport-height tracking — geometry
+flows *through* the Elm loop, never around it. The table's scroll offset lives
+in the model; `update()` re-clamps it after every message so the selected row
+is always inside the rendered window (the wheel moves the selection, which
+drags the view — it never scrolls independently).
 
 ### Headless mode
 

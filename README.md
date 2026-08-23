@@ -121,7 +121,7 @@ Design decisions with tradeoffs live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTU
 - **Trend sparklines** — per-row ▁▂▃▄▅▆▇█ over a 14-sample ring buffer; blanks until two real samples exist (no fake zeros).
 - **Config that only overrides** — `interval_ms`, sort, `ignore_ports`, labels, log files, theme, `[docker]`, `[health]`. Missing file is valid config. See [`config.example.toml`](config.example.toml).
 - **Themes** — `dark`, `light`, `nord`.
-- **Mouse** — click selects, wheel scrolls.
+- **Mouse** — click selects a row; the wheel moves the selection and the viewport keeps it in view, so lists longer than one screen stay fully navigable.
 - **Staleness indicator** — title shows data age and flags STALE past 2× interval.
 - **Headless mode** — `portly --once` prints an aligned table for scripts/CI.
 - **Shell completions** — `portly completions <bash|zsh|fish|powershell>`.
@@ -132,8 +132,8 @@ Design decisions with tradeoffs live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTU
 
 | Key | Action |
 |---|---|
-| `↑`/`↓`, `j`/`k` | move selection |
-| click / wheel | select row / scroll |
+| `↑`/`↓`, `j`/`k` | move selection (the table scrolls to keep it visible) |
+| click / wheel | select a row / move the selection (viewport follows the selection) |
 | `/` | filter by text (port, proto, pid, name, state) |
 | `s` | cycle sort: port → cpu → mem |
 | `l` | toggle logs pane for selection |

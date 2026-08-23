@@ -9,7 +9,7 @@ use ratatui::{
 };
 
 use crate::config::Theme;
-use crate::model::{Health, Model};
+use crate::model::{body_capacity, clamp_view_start, Health, Model};
 
 const SPARK_GLYPHS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
 
@@ -46,7 +46,13 @@ pub fn render(f: &mut Frame, m: &Model, theme: &Theme, now: Instant) {
 
     let vis = m.visible();
     let selected_port = vis.get(m.selected).map(|&i| m.entries[i].port);
-    let rows: Vec<Row> = vis
+    // Render only the viewport window: `start` is re-clamped against THIS
+    // frame's table rect (not the model's possibly one-frame-old geometry), so
+    // the selected row is visible even right after a terminal resize.
+    let capacity = body_capacity(table_area.height);
+    let start = clamp_view_start(m.scroll, m.selected, capacity);
+    let end = (start + capacity).min(vis.len());
+    let rows: Vec<Row> = vis[start..end]
         .iter()
         .enumerate()
         .map(|(row_i, &i)| {
@@ -62,7 +68,7 @@ pub fn render(f: &mut Frame, m: &Model, theme: &Theme, now: Instant) {
                 health_cell(m, e.port, selected_port == Some(e.port), theme),
                 Cell::from(e.source.to_string()),
             ];
-            if row_i == m.selected {
+            if start + row_i == m.selected {
                 Row::new(cells).style(Style::new().add_modifier(Modifier::REVERSED))
             } else {
                 Row::new(cells)
@@ -130,8 +136,8 @@ pub fn render(f: &mut Frame, m: &Model, theme: &Theme, now: Instant) {
         let popup = centered_rect(58, 15, table_area);
         f.render_widget(Clear, popup);
         let keys: Vec<Line> = vec![
-            Line::from("j / k, ↑ / ↓    move selection"),
-            Line::from("click / wheel   select / move (mouse)"),
+            Line::from("j / k, ↑ / ↓    move selection (view follows)"),
+            Line::from("click / wheel   select row / move selection"),
             Line::from("/               filter (substring)"),
             Line::from("s               cycle sort: port → cpu → mem"),
             Line::from("l               toggle logs pane for selection"),
@@ -160,16 +166,16 @@ fn area_height(total: Rect) -> u16 {
 }
 
 thread_local! {
-    static LAST_GEOMETRY: std::cell::Cell<Option<(u16, u16, u16)>> = const { std::cell::Cell::new(None) };
+    static LAST_GEOMETRY: std::cell::Cell<Option<(u16, u16, u16, u16)>> = const { std::cell::Cell::new(None) };
 }
 
 fn report_geometry(area: Rect) {
-    LAST_GEOMETRY.with(|g| g.set(Some((area.x, area.y, area.width))));
+    LAST_GEOMETRY.with(|g| g.set(Some((area.x, area.y, area.width, area.height))));
 }
 
 /// Drain the geometry reported by the last render, to be fed back into the
 /// event loop as `Msg::FrameGeometry`.
-pub fn take_geometry() -> Option<(u16, u16, u16)> {
+pub fn take_geometry() -> Option<(u16, u16, u16, u16)> {
     LAST_GEOMETRY.with(|g| g.take())
 }
 
@@ -457,6 +463,60 @@ mod tests {
         assert!(table.starts_with("PORT"));
         assert!(table.lines().count() == 2);
         assert!(table.contains("node"));
+    }
+
+    /// Audit probe reproduced: 100 rows, 24-line terminal, 60x Down. The
+    /// selected deep row must be rendered — before the scroll fix it was not.
+    fn hundred_rows_24line_term() -> Model {
+        let mut m = Model::new();
+        m.entries = (0..100u16)
+            .map(|i| host(3000 + i, Some(i as u32), &format!("svc{}", 3000 + i)))
+            .collect();
+        m.table_area = (0, 0, 110, 23); // matches frame_text(110, 24) geometry
+        m
+    }
+
+    fn drive_down(m: &mut Model, n: usize) {
+        for _ in 0..n {
+            let _ = crate::model::update(m, crate::model::Msg::Key(crate::model::Key::Down));
+        }
+    }
+
+    #[test]
+    fn selected_deep_row_is_rendered_after_60_downs() {
+        let mut m = hundred_rows_24line_term();
+        drive_down(&mut m, 60);
+        assert_eq!(m.selected, 60);
+        let text = frame_text(110, 24, &m);
+        assert!(
+            text.contains("svc3060"),
+            "selected row must be visible in the frame\n{text}"
+        );
+    }
+
+    #[test]
+    fn first_row_scrolls_out_of_view_when_selection_passes_it() {
+        let mut m = hundred_rows_24line_term();
+        drive_down(&mut m, 60);
+        let text = frame_text(110, 24, &m);
+        assert!(
+            !text.contains("svc3000"),
+            "top row must have scrolled out of the viewport\n{text}"
+        );
+        // The window is rows 41..=60: svc3041 is the new top line.
+        assert!(text.contains("svc3041"), "{text}");
+    }
+
+    #[test]
+    fn scrolling_back_up_brings_first_row_into_view_again() {
+        let mut m = hundred_rows_24line_term();
+        drive_down(&mut m, 60);
+        for _ in 0..60 {
+            let _ = crate::model::update(&mut m, crate::model::Msg::Key(crate::model::Key::Up));
+        }
+        let text = frame_text(110, 24, &m);
+        assert!(text.contains("svc3000"), "{text}");
+        assert!(!text.contains("svc3060"), "{text}");
     }
 }
 

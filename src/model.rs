@@ -183,7 +183,7 @@ pub enum Msg {
         gen: u64,
         line: String,
     },
-    FrameGeometry(u16, u16, u16), // x, y, width of the table body area
+    FrameGeometry(u16, u16, u16, u16), // x, y, width, height of the table area
     ActionDone(Result<String, String>),
 }
 
@@ -246,7 +246,10 @@ pub struct Model {
     pub log_gen: u64,
     pub log_lines: VecDeque<String>,
     pub log_scroll: usize,
-    pub table_area: (u16, u16, u16),
+    pub table_area: (u16, u16, u16, u16),
+    /// Index into `visible()` of the first rendered table row (viewport top).
+    /// Kept coherent by `update()`; `view_start()` is the read-side clamp.
+    pub scroll: usize,
     pub mouse: bool,
     /// port → file mapping from `[log_files]` config, used by the logs pane.
     pub cfg_log_files: HashMap<u16, std::path::PathBuf>,
@@ -279,7 +282,8 @@ impl Model {
             log_gen: 0,
             log_lines: VecDeque::new(),
             log_scroll: 0,
-            table_area: (0, 0, 80),
+            table_area: (0, 0, 80, 24),
+            scroll: 0,
             mouse: true,
             cfg_log_files: HashMap::new(),
         }
@@ -358,10 +362,37 @@ impl Model {
         self.visible().get(self.selected).map(|&i| &self.entries[i])
     }
 
+    /// First `visible()` index rendered at the top of the table: the stored
+    /// scroll offset re-clamped against the current selection and viewport
+    /// height, so the selected row is visible by construction.
+    pub fn view_start(&self) -> usize {
+        clamp_view_start(self.scroll, self.selected, body_capacity(self.table_area.3))
+    }
+
     /// Data age in whole seconds relative to `now` (injected so rendering
     /// stays deterministic in tests).
     pub fn data_age_secs(&self, now: Instant) -> Option<u64> {
         self.last_scan.map(|t| now.duration_since(t).as_secs())
+    }
+}
+
+/// Rows that fit between the table's top/bottom borders and its header row.
+pub fn body_capacity(table_area_height: u16) -> usize {
+    table_area_height.saturating_sub(3) as usize
+}
+
+/// Scroll offset that keeps `selected` inside a viewport of `capacity` rows.
+/// Pure and idempotent: the single definition of "the view follows selection".
+pub fn clamp_view_start(scroll: usize, selected: usize, capacity: usize) -> usize {
+    if capacity == 0 {
+        return scroll;
+    }
+    if selected < scroll {
+        selected
+    } else if selected >= scroll + capacity {
+        selected + 1 - capacity
+    } else {
+        scroll
     }
 }
 
@@ -382,7 +413,7 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
                 push_log_line(model, line);
             }
         }
-        Msg::FrameGeometry(x, y, w) => model.table_area = (x, y, w),
+        Msg::FrameGeometry(x, y, w, h) => model.table_area = (x, y, w, h),
         Msg::Mouse(m) => effects.extend(handle_mouse(model, m)),
         Msg::Key(k) => effects.extend(handle_key(model, k)),
         Msg::ActionDone(result) => match result {
@@ -393,21 +424,35 @@ pub fn update(model: &mut Model, msg: Msg) -> Vec<Effect> {
             Err(err) => model.last_error = Some(err),
         },
     }
+    // Every path above may move the selection or resize the viewport; this is
+    // the one place scroll state is reconciled, so no caller can forget it.
+    model.scroll = clamp_view_start(
+        model.scroll,
+        model.selected,
+        body_capacity(model.table_area.3),
+    );
     effects
 }
 
 fn handle_mouse(model: &mut Model, m: MouseMsg) -> Vec<Effect> {
     match m {
+        // Wheel semantics: the wheel MOVES THE SELECTION and the viewport
+        // follows it (same contract as ↑/↓). It never scrolls independently.
         MouseMsg::ScrollUp => handle_key(model, Key::Up),
         MouseMsg::ScrollDown => handle_key(model, Key::Down),
         MouseMsg::Click(y) => {
-            let (_ax, ay, _aw) = model.table_area;
+            let (_ax, ay, _aw, ah) = model.table_area;
             let vis_len = model.visible().len();
-            // Rows start two lines below the panel top (border + header).
+            // Rows start two lines below the panel top (border + header), and
+            // only rows inside the rendered window exist on screen: a click
+            // past the last data row (blank filler or border) is a no-op.
             if y >= ay + 2 {
                 let row = (y - ay - 2) as usize;
-                if row < vis_len {
-                    model.selected = row;
+                if row < body_capacity(ah) {
+                    let idx = model.view_start() + row;
+                    if idx < vis_len {
+                        model.selected = idx;
+                    }
                 }
             }
             Vec::new()
@@ -569,8 +614,8 @@ fn handle_key(model: &mut Model, key: Key) -> Vec<Effect> {
         Key::Char('?') => model.show_help = true,
         Key::Char('/') => model.filter_input = true,
         Key::Char('s') => model.sort = model.sort.next(),
-        Key::Up => model.selected = model.selected.saturating_sub(1),
-        Key::Down => {
+        Key::Up | Key::Char('k') => model.selected = model.selected.saturating_sub(1),
+        Key::Down | Key::Char('j') => {
             let len = model.visible().len();
             model.selected = (model.selected + 1).min(len.saturating_sub(1));
         }
@@ -981,7 +1026,7 @@ mod tests {
     #[test]
     fn mouse_click_selects_visible_row() {
         let mut m = Model::new();
-        m.table_area = (0, 0, 80);
+        m.table_area = (0, 0, 80, 10);
         m.entries = vec![
             host(1, Some(1), "a"),
             host(2, Some(2), "b"),
@@ -1092,5 +1137,142 @@ mod audit3_tests {
         let _ = update(&mut m, Msg::Key(Key::Esc)); // clears filter
         assert_eq!(m.visible().len(), 2);
         assert!(m.selected < m.visible().len());
+    }
+}
+
+#[cfg(test)]
+mod scroll_tests {
+    use super::*;
+
+    fn host(port: u16, name: &str) -> PortEntry {
+        PortEntry {
+            port,
+            proto: Protocol::Tcp,
+            pid: Some(port as u32),
+            process: Some(name.to_string()),
+            cmdline: None,
+            cpu: Some(1.0),
+            mem_bytes: Some(1000),
+            source: Source::Proc,
+            container: None,
+            container_state: None,
+        }
+    }
+
+    /// Audit-probe geometry: 100 rows in a 24-line terminal. The table area is
+    /// 23 lines tall → 20 data rows per viewport (2 borders + 1 header).
+    fn hundred_rows() -> Model {
+        let mut m = Model::new();
+        m.entries = (0..100u16)
+            .map(|i| host(3000 + i, &format!("svc{}", 3000 + i)))
+            .collect();
+        m.table_area = (0, 0, 110, 23);
+        m
+    }
+
+    #[test]
+    fn capacity_subtracts_borders_and_header() {
+        assert_eq!(body_capacity(23), 20);
+        assert_eq!(body_capacity(3), 0);
+        assert_eq!(body_capacity(0), 0);
+    }
+
+    #[test]
+    fn selection_past_bottom_scrolls_viewport() {
+        let mut m = hundred_rows();
+        for _ in 0..60 {
+            let _ = update(&mut m, Msg::Key(Key::Down));
+        }
+        assert_eq!(m.selected, 60);
+        assert_eq!(m.scroll, 41); // selected + 1 - capacity
+        assert_eq!(m.view_start(), 41);
+    }
+
+    #[test]
+    fn scroll_snaps_back_when_selection_returns_to_top() {
+        let mut m = hundred_rows();
+        for _ in 0..60 {
+            let _ = update(&mut m, Msg::Key(Key::Down));
+        }
+        for _ in 0..60 {
+            let _ = update(&mut m, Msg::Key(Key::Up));
+        }
+        assert_eq!(m.selected, 0);
+        assert_eq!(m.scroll, 0);
+    }
+
+    #[test]
+    fn j_and_k_move_selection_like_arrows() {
+        let mut m = hundred_rows();
+        let _ = update(&mut m, Msg::Key(Key::Char('j')));
+        assert_eq!(m.selected, 1);
+        let _ = update(&mut m, Msg::Key(Key::Char('k')));
+        let _ = update(&mut m, Msg::Key(Key::Char('k')));
+        assert_eq!(m.selected, 0); // saturates, never wraps
+    }
+
+    #[test]
+    fn wheel_moves_selection_and_viewport_follows() {
+        let mut m = hundred_rows();
+        for _ in 0..19 {
+            let _ = update(&mut m, Msg::Key(Key::Down));
+        }
+        assert_eq!((m.selected, m.scroll), (19, 0));
+        let _ = update(&mut m, Msg::Mouse(MouseMsg::ScrollDown));
+        assert_eq!(m.selected, 20); // wheel moved the selection…
+        assert_eq!(m.scroll, 1); // …and the viewport followed it down
+        let _ = update(&mut m, Msg::Mouse(MouseMsg::ScrollUp));
+        assert_eq!(m.selected, 19);
+        assert_eq!(m.view_start(), 1); // still visible: view need not move
+    }
+
+    #[test]
+    fn click_hit_testing_accounts_for_scroll_offset() {
+        let mut m = Model::new();
+        m.entries = (0..30u16)
+            .map(|i| host(3000 + i, &format!("svc{}", 3000 + i)))
+            .collect();
+        m.table_area = (2, 1, 80, 10); // capacity 7; rows start at screen y=3
+        for _ in 0..20 {
+            let _ = update(&mut m, Msg::Key(Key::Down));
+        }
+        assert_eq!(m.selected, 20);
+        assert_eq!(m.view_start(), 14);
+
+        // Click the 4th rendered line: visible row 14 + 3.
+        let _ = update(&mut m, Msg::Mouse(MouseMsg::Click(1 + 2 + 3)));
+        assert_eq!(m.selected, 17);
+        assert_eq!(m.selected_entry().unwrap().port, 3017);
+
+        // Header band and bottom border are not rows.
+        let _ = update(&mut m, Msg::Mouse(MouseMsg::Click(2)));
+        let _ = update(&mut m, Msg::Mouse(MouseMsg::Click(1 + 10 - 1)));
+        assert_eq!(m.selected, 17);
+    }
+
+    #[test]
+    fn click_on_blank_filler_below_last_row_is_ignored() {
+        let mut m = Model::new();
+        m.entries = vec![host(1, "a"), host(2, "b")];
+        m.table_area = (0, 0, 80, 12); // capacity 9 > row count
+        let _ = update(&mut m, Msg::Mouse(MouseMsg::Click(8))); // row 6, idx 6
+        assert_eq!(m.selected, 0);
+    }
+
+    #[test]
+    fn filter_shrink_reconciles_scroll_with_clamped_selection() {
+        let mut m = hundred_rows();
+        for _ in 0..60 {
+            let _ = update(&mut m, Msg::Key(Key::Down));
+        }
+        assert_eq!(m.scroll, 41);
+        m.filter_input = true;
+        for ch in "svc3060".chars() {
+            let _ = update(&mut m, Msg::Key(Key::Char(ch)));
+        }
+        let _ = update(&mut m, Msg::Key(Key::Enter));
+        assert_eq!(m.visible().len(), 1);
+        assert_eq!(m.selected, 0);
+        assert_eq!(m.scroll, 0); // viewport reset with the clamped cursor
     }
 }

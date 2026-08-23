@@ -299,7 +299,7 @@ fn tui_loop(
         terminal.draw(|f| view::render(f, &app, &theme, Instant::now()))?;
         if let Some(g) = view::take_geometry() {
             if g != app.table_area {
-                let fx = model::update(&mut app, Msg::FrameGeometry(g.0, g.1, g.2));
+                let fx = model::update(&mut app, Msg::FrameGeometry(g.0, g.1, g.2, g.3));
                 debug_assert!(fx.is_empty());
             }
         }
