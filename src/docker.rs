@@ -130,9 +130,10 @@ pub async fn perform(docker: &Docker, id: &str, action: ContainerAction) -> Resu
 }
 
 /// Collector loop on its own thread: discover containers each interval and
-/// pull a one-shot stat sample per running container.
+/// pull a one-shot stat sample per running container. If the thread cannot be
+/// spawned, log-and-degrade instead of panicking — audit U3.
 pub fn spawn_collector(tx: Tx, interval: Duration, ignored: BTreeSet<u16>) {
-    std::thread::Builder::new()
+    let result = std::thread::Builder::new()
         .name("portly-docker".into())
         .spawn(move || {
             let Ok(docker) = connect() else {
@@ -206,8 +207,10 @@ pub fn spawn_collector(tx: Tx, interval: Duration, ignored: BTreeSet<u16>) {
                     tokio::time::sleep(interval).await;
                 }
             });
-        })
-        .expect("failed to spawn docker collector");
+        });
+    if let Err(e) = result {
+        tracing::warn!(error = %e, "failed to spawn docker collector; containers disabled");
+    }
 }
 
 /// Follow `docker logs -f`, streaming lines tagged with `gen`. Exits when

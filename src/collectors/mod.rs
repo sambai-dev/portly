@@ -15,15 +15,16 @@ use crate::model::{Msg, PortEntry};
 ///
 /// One worker per source keeps failure isolated: if this scan errors we send
 /// `CollectorFailed` and keep going. Docker and health collectors join the
-/// same mpsc channel from their own threads.
+/// same mpsc channel from their own threads. If the thread itself cannot be
+/// spawned, log-and-degrade (`None`) instead of panicking — audit U3.
 #[allow(clippy::too_many_arguments)]
 pub fn spawn_collector(
     tx: UnboundedSender<Msg>,
     interval: Duration,
     ignored: BTreeSet<u16>,
     labels: HashMap<u16, String>,
-) -> JoinHandle<()> {
-    std::thread::Builder::new()
+) -> Option<JoinHandle<()>> {
+    let result = std::thread::Builder::new()
         .name("portly-collector".into())
         .spawn(move || {
             tracing::debug!(
@@ -52,8 +53,14 @@ pub fn spawn_collector(
                 }
             }
             tracing::debug!("collector stopped");
-        })
-        .expect("failed to spawn collector thread")
+        });
+    match result {
+        Ok(handle) => Some(handle),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to spawn collector thread; live scans disabled");
+            None
+        }
+    }
 }
 
 fn scan_and_enrich(

@@ -80,7 +80,7 @@ Windows 11 Enterprise · i9-14900KF · 64 GB RAM · rustc 1.98.0 · release buil
 | Idle TUI working set | < 30 MB | **25 MB** (16 MB private) | WorkingSet64 @ 4 s alive |
 | `--once` end-to-end median | — (info) | **512.7 ms** min 493 / max 568 | process spawn → full table printed, incl. Docker round-trip |
 | Time-to-first-frame | < 100 ms | instant | TUI paints empty table immediately; data arrives async by design |
-| Tests | — | 26 green | update transitions, pools, frames, health, config |
+| Tests | — | 54 green | update transitions, pools, frames, health, config |
 
 Honest note: the 500 ms once-mode figure is dominated by the Docker Engine round-trip and sysinfo's cold refresh — the interactive TUI never blocks on either.
 
@@ -191,7 +191,7 @@ PORTLY_CONFIG=./ci.toml portly     # project-local config
 ```sh
 cargo build                          # default features (docker)
 cargo build --no-default-features   # lean build without bollard
-cargo test                           # 33 tests
+cargo test                           # 54 tests
 cargo clippy --all-targets -- -D warnings
 cargo fmt --check
 cargo run                            # the TUI

@@ -80,7 +80,14 @@ fn main() -> color_eyre::Result<()> {
     }
 
     if cli.once {
-        return run_once_mode(&cfg);
+        // Audit U2: headless consumers parse stdout; a failed scan must be
+        // one plain stderr line plus a non-zero exit — never a color-eyre
+        // multi-page report.
+        if let Err(err) = run_once_mode(&cfg) {
+            eprintln!("{}", once_failure_line(&err));
+            std::process::exit(1);
+        }
+        return Ok(());
     }
 
     // Audit D1: the alt-screen dashboard assumes a human on a TTY; piped or
@@ -102,7 +109,9 @@ fn dashboard_tty_blocker(is_terminal: bool) -> Option<&'static str> {
 }
 
 // ------------------------------------------------------------ headless ----
-fn run_once_mode(cfg: &Config) -> color_eyre::Result<()> {
+/// Errors surface via [`once_failure_line`] at the call site, so a scan
+/// failure can never fall through to color-eyre.
+fn run_once_mode(cfg: &Config) -> std::io::Result<()> {
     let started = Instant::now();
     #[cfg_attr(not(feature = "docker"), allow(unused_mut))]
     let mut entries = collectors::run_once(&cfg.ignore_ports, &cfg.labels)?;
@@ -180,6 +189,12 @@ fn docker_skip_line(reason: &str) -> String {
     format!("portly: docker: skipping containers ({reason})")
 }
 
+/// Pure message builder (unit-tested): audit U2 — one plain stderr line for a
+/// failed `--once` scan.
+fn once_failure_line(err: &std::io::Error) -> String {
+    format!("portly: scan failed: {err}")
+}
+
 // ------------------------------------------------------------------ TUI ---
 
 fn run_tui(cfg: Config) -> color_eyre::Result<()> {
@@ -191,10 +206,8 @@ fn run_tui(cfg: Config) -> color_eyre::Result<()> {
         restore_terminal();
         return Err(err.into());
     }
-    if cfg.theme.name != "none" {
-        // Mouse capture is best-effort polish; failure must not kill the app.
-        let _ = execute!(stdout(), EnableMouseCapture);
-    }
+    // Mouse capture is best-effort polish; failure must not kill the app.
+    let _ = execute!(stdout(), EnableMouseCapture);
 
     let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<Msg>();
     let interval = Duration::from_millis(cfg.interval_ms);
@@ -215,8 +228,7 @@ fn run_tui(cfg: Config) -> color_eyre::Result<()> {
     };
 
     let health_feed: Option<health::PortFeed> = if cfg.health.enabled {
-        let (feed, _handle) = health::spawn_prober(tx.clone(), cfg.health.clone());
-        Some(feed)
+        health::spawn_prober(tx.clone(), cfg.health.clone()).map(|(feed, _handle)| feed)
     } else {
         None
     };
@@ -523,5 +535,19 @@ mod d2_docker_skip_tests {
             assert!(!line.contains('\n'), "one line only: {line:?}");
             assert!(line.starts_with("portly: docker:"), "{line}");
         }
+    }
+}
+
+#[cfg(test)]
+mod u2_once_failure_tests {
+    use super::*;
+
+    #[test]
+    fn failure_line_is_single_plain_prefixed_line() {
+        let err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "denied");
+        let line = once_failure_line(&err);
+        assert!(line.starts_with("portly: scan failed: "), "{line}");
+        assert!(!line.contains('\n'), "one line only: {line:?}");
+        assert!(line.contains("denied"), "must carry the error text: {line}");
     }
 }

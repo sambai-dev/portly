@@ -18,10 +18,12 @@ pub type Tx = tokio::sync::mpsc::UnboundedSender<Msg>;
 /// host scan so the prober never probes stale or closed ports.
 pub type PortFeed = Arc<Mutex<BTreeSet<u16>>>;
 
-pub fn spawn_prober(tx: Tx, cfg: HealthConfig) -> (PortFeed, JoinHandle<()>) {
+/// Spawn the prober. Returns `None` when the thread cannot be spawned
+/// (log-and-degrade, audit U3): the caller treats it as health disabled.
+pub fn spawn_prober(tx: Tx, cfg: HealthConfig) -> Option<(PortFeed, JoinHandle<()>)> {
     let feed: PortFeed = Arc::new(Mutex::new(BTreeSet::new()));
     let feed_clone = feed.clone();
-    let handle = std::thread::Builder::new()
+    let result = std::thread::Builder::new()
         .name("portly-health".into())
         .spawn(move || {
             tracing::debug!(interval_ms = cfg.interval_ms, path = %cfg.path, "health prober started");
@@ -37,9 +39,14 @@ pub fn spawn_prober(tx: Tx, cfg: HealthConfig) -> (PortFeed, JoinHandle<()>) {
                 std::thread::sleep(Duration::from_millis(cfg.interval_ms));
             }
             tracing::debug!("health prober stopped");
-        })
-        .expect("failed to spawn health prober");
-    (feed, handle)
+        });
+    match result {
+        Ok(handle) => Some((feed, handle)),
+        Err(e) => {
+            tracing::warn!(error = %e, "failed to spawn health prober; health checks disabled");
+            None
+        }
+    }
 }
 
 fn probe_round(ports: &[u16], cfg: &HealthConfig) -> HashMap<u16, (Health, Option<u16>)> {

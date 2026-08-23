@@ -135,7 +135,7 @@ loop {
 
 ## Config sketch (week 4)
 
-`~/.config/portly.toml`
+`~/.config/portly/config.toml` (`%APPDATA%\portly\config.toml` on Windows)
 ```toml
 interval_ms = 500
 sort = "port"
