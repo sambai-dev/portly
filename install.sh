@@ -21,7 +21,7 @@ ARCH="$(uname -m)"
 case "$OS" in
     Linux) case "$ARCH" in
         x86_64) TARGET="x86_64-unknown-linux-gnu" ;;
-        aarch64 | arm64) die "linux-aarch64 builds are not published yet; build from source: cargo install portly" ;;
+        aarch64 | arm64) die "linux-aarch64 builds are not published yet; build from source: cargo install --git https://github.com/sambai-dev/portly --locked" ;;
         *) die "unsupported arch: $ARCH" ;;
     esac ;;
     Darwin) case "$ARCH" in

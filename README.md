@@ -21,7 +21,7 @@ curl -fsSL https://raw.githubusercontent.com/sambai-dev/portly/main/install.sh |
 irm https://raw.githubusercontent.com/sambai-dev/portly/main/install.ps1 | iex
 
 # Any platform with Rust
-cargo install portly --locked
+cargo install --git https://github.com/sambai-dev/portly --locked
 
 portly          # live cockpit
 portly --once   # headless snapshot table for scripts/CI
@@ -155,7 +155,7 @@ cargo binstall portly
 curl -fsSL https://raw.githubusercontent.com/sambai-dev/portly/main/install.sh | sh   # mac/linux
 irm https://raw.githubusercontent.com/sambai-dev/portly/main/install.ps1 | iex       # windows
 
-# From source (crates.io publish pending first owner login; use git in the meantime)
+# From source (`portly` on crates.io is currently an unrelated project)
 cargo install --git https://github.com/sambai-dev/portly --locked
 ```
 
@@ -182,7 +182,7 @@ PORTLY_CONFIG=./ci.toml portly     # project-local config
 
 - **v0.1.0 released** — binaries for linux (gnu+musl), macOS (arm64+x64), Windows: [download](https://github.com/sambai-dev/portly/releases/latest).
 - **Homebrew tap live**: [`sambai-dev/homebrew-portly`](https://github.com/sambai-dev/homebrew-portly), formula pinned to release tarball sha256s.
-- **crates.io publish pending** owner `cargo login` — until then `cargo install --git` works from this repo.
+- **crates.io**: the `portly` name there is currently held by an unrelated project — install via `cargo install --git https://github.com/sambai-dev/portly --locked` until this project publishes under its own name.
 - CI green on all three platforms; both feature sets (`--no-default-features` included) build warning-free.
 
 ## Development
