@@ -9,6 +9,7 @@ use portly::view;
 
 use std::collections::{BTreeSet, HashMap};
 use std::io::stdout;
+use std::io::IsTerminal;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -73,10 +74,7 @@ fn main() -> color_eyre::Result<()> {
         return Ok(());
     }
 
-    let mut cfg = match &cli.config {
-        Some(path) => Config::load_from(Some(path)),
-        None => Config::load(),
-    };
+    let mut cfg = Config::load_with(cli.config.as_deref());
     if let Some(ms) = cli.interval_ms {
         cfg.interval_ms = ms.clamp(100, 60_000);
     }
@@ -85,7 +83,22 @@ fn main() -> color_eyre::Result<()> {
         return run_once_mode(&cfg);
     }
 
+    // Audit D1: the alt-screen dashboard assumes a human on a TTY; piped or
+    // redirected stdout would collect escape-sequence garbage forever (the
+    // input loop never sees EOF). Refuse instead of hanging.
+    if let Some(reason) = dashboard_tty_blocker(stdout().is_terminal()) {
+        eprintln!("portly: {reason}");
+        std::process::exit(2);
+    }
+
     run_tui(cfg)
+}
+
+/// Pure TTY-branch decision (unit-tested): returns the stderr explanation when
+/// the interactive dashboard must refuse to start.
+fn dashboard_tty_blocker(is_terminal: bool) -> Option<&'static str> {
+    (!is_terminal)
+        .then_some("live dashboard needs a terminal; use `portly --once` for a single snapshot")
 }
 
 // ------------------------------------------------------------ headless ----
@@ -116,22 +129,55 @@ fn run_once_mode(cfg: &Config) -> color_eyre::Result<()> {
 
 #[cfg(feature = "docker")]
 fn docker_once_blocking() -> Option<Vec<model::PortEntry>> {
-    let rt = tokio::runtime::Builder::new_current_thread()
+    let rt = match tokio::runtime::Builder::new_current_thread()
         .enable_all()
         .build()
-        .ok()?;
-    // A hung daemon must never hang the headless path.
+    {
+        Ok(rt) => rt,
+        Err(err) => {
+            warn_docker_skipped(&format!("runtime unavailable ({err})"));
+            return None;
+        }
+    };
+    // A hung daemon must never hang the headless path — but silence would make
+    // a failed source indistinguishable from zero containers (audit D2), so
+    // every skip explains itself on stderr. stdout stays table-only.
     rt.block_on(async {
         tokio::time::timeout(std::time::Duration::from_secs(5), async {
-            let docker = docker::connect().ok()?;
-            docker::list_entries(&docker).await.ok()
+            match docker::connect() {
+                Ok(docker) => match docker::list_entries(&docker).await {
+                    Ok(entries) => Some(entries),
+                    Err(err) => {
+                        warn_docker_skipped(&format!("list failed ({err})"));
+                        None
+                    }
+                },
+                Err(_) => {
+                    warn_docker_skipped("connection failed");
+                    None
+                }
+            }
         })
         .await
         .unwrap_or_else(|_| {
             tracing::warn!("docker list timed out in --once mode");
+            warn_docker_skipped("timed out after 5s");
             None
         })
     })
+}
+
+/// Audit D2: one concise stderr line naming the skipped source; also traced.
+#[cfg(feature = "docker")]
+fn warn_docker_skipped(reason: &str) {
+    tracing::warn!("{}", docker_skip_line(reason));
+    eprintln!("{}", docker_skip_line(reason));
+}
+
+/// Pure message builder (unit-tested).
+#[cfg(feature = "docker")]
+fn docker_skip_line(reason: &str) -> String {
+    format!("portly: docker: skipping containers ({reason})")
 }
 
 // ------------------------------------------------------------------ TUI ---
@@ -428,5 +474,54 @@ impl std::io::Write for WriterGuard<'_> {
 
     fn flush(&mut self) -> std::io::Result<()> {
         self.0.flush()
+    }
+}
+
+#[cfg(test)]
+mod d1_tty_guard_tests {
+    use super::*;
+
+    #[test]
+    fn non_terminal_stdout_blocks_dashboard() {
+        assert!(dashboard_tty_blocker(false).is_some());
+    }
+
+    #[test]
+    fn terminal_stdout_runs_dashboard() {
+        assert_eq!(dashboard_tty_blocker(true), None);
+    }
+
+    #[test]
+    fn blocker_message_advertises_once_mode() {
+        let msg = dashboard_tty_blocker(false).unwrap();
+        assert!(msg.contains("--once"), "must offer the escape hatch: {msg}");
+        assert!(msg.starts_with("live dashboard"), "{msg}");
+    }
+}
+
+#[cfg(all(test, feature = "docker"))]
+mod d2_docker_skip_tests {
+    use super::*;
+
+    #[test]
+    fn skip_line_names_source_and_reason() {
+        let line = docker_skip_line("connection failed");
+        assert_eq!(
+            line,
+            "portly: docker: skipping containers (connection failed)"
+        );
+    }
+
+    #[test]
+    fn skip_line_is_single_line() {
+        for reason in [
+            "connection failed",
+            "timed out after 5s",
+            "list failed (boom)",
+        ] {
+            let line = docker_skip_line(reason);
+            assert!(!line.contains('\n'), "one line only: {line:?}");
+            assert!(line.starts_with("portly: docker:"), "{line}");
+        }
     }
 }

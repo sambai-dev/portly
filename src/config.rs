@@ -77,23 +77,63 @@ struct HealthSection {
     path: Option<String>,
 }
 
+/// Where a config path came from — decides whether an unreadable file
+/// deserves a stderr warning (audit D3).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum Origin {
+    /// User pointed at it (`--config` / `$PORTLY_CONFIG`): warn when unreadable,
+    /// matching the malformed-file behavior.
+    Explicit,
+    /// Discovered default location: absence is a normal first run, stay silent.
+    Default,
+}
+
 impl Config {
-    pub fn load() -> Self {
-        Self::load_from(default_path().as_deref())
+    /// Load with standard precedence: `--config` flag > `$PORTLY_CONFIG` >
+    /// system config dir. Explicit sources warn on stderr when unreadable;
+    /// a missing default-location file stays silent.
+    pub fn load_with(flag: Option<&std::path::Path>) -> Self {
+        if let Some(path) = flag {
+            return Self::load_at(path, Origin::Explicit);
+        }
+        if let Some(raw) = std::env::var_os("PORTLY_CONFIG") {
+            return Self::load_at(std::path::Path::new(&raw), Origin::Explicit);
+        }
+        match dirs::config_dir() {
+            Some(dir) => Self::load_at(&dir.join("portly").join("config.toml"), Origin::Default),
+            None => Config::default(),
+        }
     }
 
+    /// Default-precedence load (no `--config` flag).
+    pub fn load() -> Self {
+        Self::load_with(None)
+    }
+
+    /// Optional-path load kept for tests/benchmarks: any given path is treated
+    /// as default-origin (missing file silently yields defaults).
     pub fn load_from(path: Option<&std::path::Path>) -> Self {
-        let mut cfg = Config::default();
-        let Some(path) = path else {
-            return cfg;
-        };
-        let Ok(raw) = std::fs::read_to_string(path) else {
-            return cfg;
+        match path {
+            Some(path) => Self::load_at(path, Origin::Default),
+            None => Config::default(),
+        }
+    }
+
+    fn load_at(path: &std::path::Path, origin: Origin) -> Self {
+        let raw = match std::fs::read_to_string(path) {
+            Ok(raw) => raw,
+            Err(err) => {
+                if origin == Origin::Explicit {
+                    eprintln!("{}", unreadable_config_message(path, &err));
+                }
+                return Config::default();
+            }
         };
         let Ok(file) = toml::from_str::<ConfigFile>(&raw) else {
             eprintln!("portly: ignoring malformed config at {}", path.display());
-            return cfg;
+            return Config::default();
         };
+        let mut cfg = Config::default();
         cfg.apply(file);
         cfg
     }
@@ -148,11 +188,13 @@ impl Config {
     }
 }
 
-fn default_path() -> Option<PathBuf> {
-    if let Some(p) = std::env::var_os("PORTLY_CONFIG") {
-        return Some(PathBuf::from(p));
-    }
-    dirs::config_dir().map(|d| d.join("portly").join("config.toml"))
+/// Pure helper (unit-tested): the D3 stderr line for an unreadable explicit
+/// config — must name the path so typos are findable.
+fn unreadable_config_message(path: &std::path::Path, err: &std::io::Error) -> String {
+    format!(
+        "portly: ignoring unreadable config at {} ({err}); continuing with defaults",
+        path.display()
+    )
 }
 
 // ---------------------------------------------------------------- themes ---
@@ -304,5 +346,34 @@ mod audit3_tests {
         std::fs::create_dir_all(&dir).unwrap();
         assert_eq!(Config::load_from(Some(&dir)), Config::default());
         let _ = std::fs::remove_dir(dir);
+    }
+}
+
+#[cfg(test)]
+mod d3_explicit_config_tests {
+    use super::*;
+
+    #[test]
+    fn explicit_missing_file_still_yields_defaults() {
+        let ghost = std::env::temp_dir().join("portly-d3-missing.toml");
+        let _ = std::fs::remove_file(&ghost);
+        assert_eq!(Config::load_with(Some(&ghost)), Config::default());
+    }
+
+    #[test]
+    fn unreadable_message_names_path_and_recovery() {
+        let err = std::io::Error::new(std::io::ErrorKind::NotFound, "no such file");
+        let msg = unreadable_config_message(std::path::Path::new("./missing.toml"), &err);
+        assert!(msg.contains("./missing.toml"), "must include path: {msg}");
+        assert!(msg.contains("continuing with defaults"), "{msg}");
+        assert!(
+            msg.starts_with("portly: "),
+            "stderr lines carry the program prefix: {msg}"
+        );
+    }
+
+    #[test]
+    fn origin_equality_drives_warning_branch() {
+        assert_ne!(Origin::Explicit, Origin::Default);
     }
 }

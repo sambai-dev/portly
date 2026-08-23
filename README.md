@@ -126,6 +126,7 @@ Design decisions with tradeoffs live in [`docs/ARCHITECTURE.md`](docs/ARCHITECTU
 - **Headless mode** — `portly --once` prints an aligned table for scripts/CI.
 - **Shell completions** — `portly completions <bash|zsh|fish|powershell>`.
 - **Structured logging** — tracing spans per scan cycle to file (`PORTLY_LOG` path override, `RUST_LOG` verbosity), never stderr.
+- **Log location** — the default trace file is `<tmp>/portly.log` (e.g. `/tmp/portly.log` on Unix, `%TEMP%\portly.log` on Windows).
 
 ## Keybindings
 
