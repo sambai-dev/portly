@@ -23,7 +23,7 @@ First public release. Everything below shipped in one drop.
 - Per-row CPU trend sparklines (▁▂▃▄▅▆▇█) over a 14-sample ring buffer; blanks until two real samples exist.
 
 ### Added — product polish
-- Config at the system config dir: `~/.config/portly/config.toml` on Linux/macOS, `%APPDATA%\portly\config.toml` on Windows (or `$PORTLY_CONFIG`) with defaults-only philosophy: interval, sort, ignore_ports, labels, log_files, themes, `[docker]`, `[health]`.
+- Config at the system config dir (`~/.config` on Linux, `~/Library/Application Support` on macOS, `%APPDATA%\portly\config.toml` on Windows; or `$PORTLY_CONFIG`) with defaults-only philosophy: interval, sort, ignore_ports, labels, log_files, themes, `[docker]`, `[health]`.
 - Themes: `dark`, `light`, `nord`.
 - Mouse support: click selects rows, wheel moves selection.
 - Staleness indicator in the title bar when data age exceeds 2× interval.

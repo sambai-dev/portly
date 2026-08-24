@@ -349,6 +349,100 @@ mod tests {
         );
     }
 
+    /// Empty listener set: still a fully valid schema — every row array is
+    /// present but empty, counts are zeros, filter is null, no panics.
+    #[test]
+    fn empty_snapshot_is_valid_schema_shape() {
+        let m = Model::new();
+        let snap = snapshot_at(&m, CAPTURED_AT.into());
+        assert!(snap.listeners.is_empty());
+        assert!(snap.processes.is_empty());
+        assert!(snap.containers.is_empty());
+        let text = serde_json::to_string_pretty(&snap).unwrap();
+        let v: Value = serde_json::from_str(&text).expect("empty run must be valid JSON");
+        let obj = v.as_object().expect("top level must be an object");
+        assert_eq!(obj.len(), 6, "same six top-level keys when empty: {text}");
+        assert_eq!(obj["filter"], Value::Null, "no filter on an empty run");
+        for k in ["listeners", "processes", "containers"] {
+            assert_eq!(
+                obj[k],
+                Value::Array(vec![]),
+                "{k} must be an empty array, never omitted: {text}"
+            );
+            assert_eq!(obj["counts"][k], Value::from(0), "counts.{k} zero: {text}");
+        }
+    }
+
+    fn stat(port: u16, pid: u32, name: &str, cpu: Option<f32>) -> PortEntry {
+        PortEntry {
+            port,
+            proto: Protocol::Tcp,
+            pid: Some(pid),
+            process: Some(name.to_string()),
+            cmdline: None,
+            cpu,
+            mem_bytes: None,
+            source: Source::Proc,
+            container: None,
+            container_state: None,
+        }
+    }
+
+    /// Non-finite stats (NaN/infinite from /proc or collectors) must never
+    /// reach the output as bare `NaN`/`Infinity` tokens — that is invalid
+    /// JSON and breaks every consumer. serde_json folds them to null.
+    #[test]
+    fn non_finite_stats_serialize_as_null_never_bare_nan() {
+        let mut m = Model::new();
+        m.entries = vec![
+            stat(3000, 7, "nan", Some(f32::NAN)),
+            stat(8080, 8, "inf", Some(f32::INFINITY)),
+            stat(9000, 9, "neg-inf", Some(f32::NEG_INFINITY)),
+        ];
+        let text = serde_json::to_string_pretty(&snapshot_at(&m, CAPTURED_AT.into())).unwrap();
+        let v: Value =
+            serde_json::from_str(&text).expect("non-finite stats must not produce invalid JSON");
+        assert!(
+            !text.contains("NaN") && !text.contains("Infinity"),
+            "bare non-finite tokens leaked: {text}"
+        );
+        for row in v["listeners"].as_array().unwrap() {
+            assert!(row["cpu_pct"].is_null(), "listener row: {row}");
+        }
+        for row in v["processes"].as_array().unwrap() {
+            assert!(row["cpu_pct"].is_null(), "process row: {row}");
+        }
+    }
+
+    /// The fold itself is the documented NaN-safe max (see max_f32): NaN loses
+    /// against any finite peer, so one poisoned sample can't erase real data.
+    #[test]
+    fn fold_ignores_nan_in_favor_of_finite_peer() {
+        let mut m = Model::new();
+        m.entries = vec![
+            stat(3000, 7, "node", Some(f32::NAN)),
+            stat(8080, 7, "node", Some(2.5)),
+        ];
+        let snap = snapshot_at(&m, CAPTURED_AT.into());
+        assert_eq!(snap.counts.processes, 1);
+        assert_eq!(
+            snap.processes[0].cpu_pct,
+            Some(2.5),
+            "finite sample wins over NaN"
+        );
+
+        // Both samples non-finite: stays Some(NaN) internally, serializes as
+        // null downstream (pinned by the test above).
+        let mut all_nan = Model::new();
+        all_nan.entries = vec![stat(3000, 7, "node", Some(f32::NAN))];
+        let snap = snapshot_at(&all_nan, CAPTURED_AT.into());
+        assert_eq!(snap.processes[0].cpu_pct.map(f32::is_nan), Some(true));
+        let text = serde_json::to_string_pretty(&snap).unwrap();
+        let v: Value = serde_json::from_str(&text).unwrap();
+        assert!(v["processes"][0]["cpu_pct"].is_null());
+        assert!(!text.contains("NaN"));
+    }
+
     /// (c) Golden-ish guard: field names AND their order are locked to the
     /// documented schema, so accidental renames fail this test loudly.
     #[test]

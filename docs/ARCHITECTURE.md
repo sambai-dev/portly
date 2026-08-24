@@ -135,7 +135,8 @@ loop {
 
 ## Config sketch (week 4)
 
-`~/.config/portly/config.toml` (`%APPDATA%\portly\config.toml` on Windows)
+Per platform (`dirs::config_dir()` + `portly/config.toml`; `$PORTLY_CONFIG` or `--config` override):
+Linux `~/.config/portly/config.toml` · macOS `~/Library/Application Support/portly/config.toml` · Windows `%APPDATA%\portly\config.toml`
 ```toml
 interval_ms = 500
 sort = "port"

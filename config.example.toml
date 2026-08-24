@@ -1,8 +1,9 @@
 # Portly configuration — every value here is optional; delete anything you
-# don't want to override. Missing file = defaults. Location:
-#   Linux/macOS: ~/.config/portly/config.toml
-#   Windows:     %APPDATA%\portly\config.toml
-#   Override:    PORTLY_CONFIG=/path/to/portly.toml  (or --config flag)
+# don't want to override. Missing file = defaults. Location (system config dir):
+#   Linux:   ~/.config/portly/config.toml
+#   macOS:   ~/Library/Application Support/portly/config.toml
+#   Windows: %APPDATA%\portly\config.toml
+#   Override: PORTLY_CONFIG=/path/to/portly.toml  (or --config flag)
 
 # Collector refresh cadence (100..60000, default 500).
 interval_ms = 500

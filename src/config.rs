@@ -129,9 +129,12 @@ impl Config {
                 return Config::default();
             }
         };
-        let Ok(file) = toml::from_str::<ConfigFile>(&raw) else {
-            eprintln!("portly: ignoring malformed config at {}", path.display());
-            return Config::default();
+        let file = match toml::from_str::<ConfigFile>(&raw) {
+            Ok(file) => file,
+            Err(err) => {
+                eprintln!("{}", malformed_config_message(path, &err));
+                return Config::default();
+            }
         };
         let mut cfg = Config::default();
         cfg.apply(file);
@@ -193,6 +196,16 @@ impl Config {
 fn unreadable_config_message(path: &std::path::Path, err: &std::io::Error) -> String {
     format!(
         "portly: ignoring unreadable config at {} ({err}); continuing with defaults",
+        path.display()
+    )
+}
+
+/// Pure helper (unit-tested): the stderr line for a file that parses but is
+/// malformed TOML. The toml error names the offending line/key — surfacing it
+/// turns "my config is ignored" into a one-look fix.
+fn malformed_config_message(path: &std::path::Path, err: &toml::de::Error) -> String {
+    format!(
+        "portly: ignoring malformed config at {} ({err}); continuing with defaults",
         path.display()
     )
 }
@@ -327,6 +340,38 @@ path = "/healthz"
         std::fs::write(&dir, "this is not [ valid toml ===").unwrap();
         assert_eq!(Config::load_from(Some(&dir)), Config::default());
         let _ = std::fs::remove_file(dir);
+    }
+
+    #[test]
+    fn malformed_config_message_carries_toml_detail() {
+        let err = toml::from_str::<ConfigFile>("interval_ms = true\nsort = 3\n").unwrap_err();
+        let msg = malformed_config_message(std::path::Path::new("./bad.toml"), &err);
+        assert!(msg.contains("./bad.toml"), "must include path: {msg}");
+        assert!(msg.starts_with("portly: "), "stderr prefix: {msg}");
+        assert!(
+            msg.contains("continuing with defaults"),
+            "recovery promise: {msg}"
+        );
+        // The whole point (FIX8 #2): the underlying detail must survive.
+        assert!(
+            msg.contains(&err.to_string()),
+            "toml error text must be embedded verbatim: {msg}"
+        );
+    }
+
+    #[test]
+    fn malformed_value_error_names_the_key() {
+        // A wrong-typed value is malformed too; toml's error names key + line.
+        let err = toml::from_str::<ConfigFile>("[health]\ninterval_ms = \"soon\"\n").unwrap_err();
+        let rendered = err.to_string();
+        assert!(
+            rendered.contains("interval_ms"),
+            "expected key in error: {rendered}"
+        );
+        assert!(
+            rendered.contains('2'),
+            "expected line number in error: {rendered}"
+        );
     }
 
     #[test]
