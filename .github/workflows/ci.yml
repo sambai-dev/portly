@@ -44,12 +44,13 @@ jobs:
       - name: tests
         run: cargo test --no-default-features
 
-  release:
+  release-build:
+    # Matrix jobs only build/package/upload artifacts; they never touch the
+    # GitHub release itself.
     if: startsWith(github.ref, 'refs/tags/v')
     needs: checks
-    runs-on: ${{ matrix.os }}
     permissions:
-      contents: write
+      contents: read
     strategy:
       matrix:
         include:
@@ -80,31 +81,39 @@ jobs:
         shell: pwsh
         run: |
           Compress-Archive -Path "target/${{ matrix.target }}/release/portly.exe" -DestinationPath "portly-${{ matrix.target }}.zip"
-      - name: Upload artifacts
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: portly-${{ matrix.target }}
+          path: portly-*
+          if-no-files-found: error
+
+  release:
+    # Single writer to the GitHub release: five concurrent action-gh-release
+    # calls used to race on create/asset-upload. One job now collects all
+    # artifacts, hashes them, and publishes everything in one shot.
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: release-build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Download artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: portly-*
+          path: dist
+          merge-multiple: true
+      - name: Generate SHA256SUMS.txt
+        # Same file list as before (the portly-* release assets); hashing
+        # local artifacts instead of re-downloading from the release.
+        run: |
+          cd dist
+          sha256sum portly-* > ../SHA256SUMS.txt
+      - name: Create release and upload assets
         uses: softprops/action-gh-release@v2
         with:
           files: |
             portly-*.tar.gz
             portly-*.zip
-
-  release-checksums:
-    # One SHA256SUMS.txt for whatever portly-* assets the matrix uploaded,
-    # so downloads are verifiable without trusting the download page.
-    if: startsWith(github.ref, 'refs/tags/v')
-    needs: release
-    runs-on: ubuntu-latest
-    permissions:
-      contents: write
-    steps:
-      - name: Download release assets
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release download "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --pattern 'portly-*' --dir dist
-      - name: Generate SHA256SUMS.txt
-        run: |
-          cd dist
-          sha256sum portly-* > ../SHA256SUMS.txt
-      - name: Upload checksums
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh release upload "$GITHUB_REF_NAME" SHA256SUMS.txt --repo "$GITHUB_REPOSITORY" --clobber
+            SHA256SUMS.txt

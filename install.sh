@@ -20,7 +20,14 @@ ARCH="$(uname -m)"
 
 case "$OS" in
     Linux) case "$ARCH" in
-        x86_64) TARGET="x86_64-unknown-linux-gnu" ;;
+        x86_64)
+            # Release CI publishes gnu and musl builds; detect libc so musl
+            # systems (Alpine etc.) get a binary that can link. gnu stays the
+            # default when detection is inconclusive.
+            case "$(ldd --version 2>/dev/null || true)" in
+                *musl*) TARGET="x86_64-unknown-linux-musl" ;;
+                *) TARGET="x86_64-unknown-linux-gnu" ;;
+            esac ;;
         aarch64 | arm64) die "linux-aarch64 builds are not published yet; build from source: cargo install --git https://github.com/sambai-dev/portly --locked" ;;
         *) die "unsupported arch: $ARCH" ;;
     esac ;;
